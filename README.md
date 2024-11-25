@@ -13,7 +13,7 @@ ArXiv Preprint ([arXiv 2411.15139](https://arxiv.org/abs/2411.15139))
 </div>
 
 ## News
-* **` Nov. XXth, 2024`:** We released our paper on Arxiv. Code/Models are coming soon. Please stay tuned! ☕️
+* **` Nov. 25th, 2024`:** We released our paper on [Arxiv](https://arxiv.org/abs/2411.15139). Code/Models are coming soon. Please stay tuned! ☕️
 
 
 ## Table of Contents
