@@ -63,17 +63,16 @@ https://github.com/user-attachments/assets/bd2364f3-73fd-4c29-b8b2-ead11f78926d
 
 ## Getting Started
 
-| Method | Model Size | Backbone | PDMS | Weight Download |
-| :---: | :---: | :---: | :---:  | :---: |
-| DiffusionDrive | 60M | [ResNet-34](https://huggingface.co/timm/resnet34.a1_in1k) | [88.1](https://github.com/hustvl/DiffusionDrive/releases/download/DiffusionDrive_88p1_PDMS_Eval_file/diffusiondrive_88p1_PDMS.csv) | [Hugging Face](https://huggingface.co/hustvl/DiffusionDrive) |
-
-
 - [Getting started from NAVSIM environment preparation](https://github.com/autonomousvision/navsim?tab=readme-ov-file#getting-started-)
 - [Preparation of DiffusionDrive environment](docs/install.md)
 - [Training and Evaluation](docs/train_eval.md)
 
 
+## Checkpoint
 
+| Method | Model Size | Backbone | PDMS | Weight Download |
+| :---: | :---: | :---: | :---:  | :---: |
+| DiffusionDrive | 60M | [ResNet-34](https://huggingface.co/timm/resnet34.a1_in1k) | [88.1](https://github.com/hustvl/DiffusionDrive/releases/download/DiffusionDrive_88p1_PDMS_Eval_file/diffusiondrive_88p1_PDMS.csv) | [Hugging Face](https://huggingface.co/hustvl/DiffusionDrive) |
 
 
 ## Contact
