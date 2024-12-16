@@ -10,7 +10,7 @@ python navsim/planning/script/run_metric_caching.py train_test_split=navtest cac
 ```
 
 ## 2. Training
-If your training machine does not have network access, you should download the pretrained ResNet-34 model from [huggingface](https://huggingface.co/timm/resnet34.a1_in1k) and upload it to your training machine.
+If your training machine does not have network access, you should download the pretrained ResNet-34 model from [huggingface](https://huggingface.co/timm/resnet34.a1_in1k) and upload it to your training machine. You should also download the [clustered anchors](https://github.com/hustvl/DiffusionDrive/releases/download/DiffusionDrive_88p1_PDMS_Eval_file/kmeans_navsim_traj_20.npy)
 ```bash
 python $NAVSIM_DEVKIT_ROOT/navsim/planning/script/run_training.py \
         agent=diffusiondrive_agent \
