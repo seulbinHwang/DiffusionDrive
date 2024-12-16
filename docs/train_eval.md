@@ -3,7 +3,7 @@
 ## 1. Cache dataset for faster training and evaluation
 ```bash
 # cache dataset for training
-python navsim/planning/script/run_dataset_caching.py agent=diffusiondrove_agent experiment_name=training_diffusiondrive_agent train_test_split=navtrain
+python navsim/planning/script/run_dataset_caching.py agent=diffusiondrive_agent experiment_name=training_diffusiondrive_agent train_test_split=navtrain
 
 # cache dataset for evaluation
 python navsim/planning/script/run_metric_caching.py train_test_split=navtest cache.cache_path=$NAVSIM_EXP_ROOT/metric_cache
