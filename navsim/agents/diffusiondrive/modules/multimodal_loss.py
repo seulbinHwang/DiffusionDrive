@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import functools
 from typing import Callable, Optional
 from torch import Tensor
-from navsim.agents.diffdriver.transfuser_config import TransfuserConfig
+from navsim.agents.diffusiondrive.transfuser_config import TransfuserConfig
 # from mmcv.ops import sigmoid_focal_loss as _sigmoid_focal_loss
 # from mmdet.models.losses import FocalLoss
 
