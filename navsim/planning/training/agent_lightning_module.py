@@ -25,10 +25,15 @@ class AgentLightningModule(pl.LightningModule):
         :return: scalar loss
         """
         features, targets = batch
-        prediction = self.agent.forward(features)
-        loss = self.agent.compute_loss(features, targets, prediction)
-        self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-        return loss
+        prediction = self.agent.forward(features, targets)
+        # loss = self.agent.compute_loss(features, targets, prediction)
+        # self.log(f"{logging_prefix}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        # return loss
+        loss_dict = self.agent.compute_loss(features, targets, prediction)
+        for k, v in loss_dict.items():
+            if v is not None:
+                self.log(f"{logging_prefix}/{k}", v, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=len(batch[0]))
+        return loss_dict['loss']
 
     def training_step(self, batch: Tuple[Dict[str, Tensor], Dict[str, Tensor]], batch_idx: int) -> Tensor:
         """
