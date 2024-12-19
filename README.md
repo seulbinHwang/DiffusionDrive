@@ -87,7 +87,7 @@ If you find DiffusionDrive is useful in your research or applications, please co
 ```bibtex
  @article{diffusiondrive,
   title={DiffusionDrive: Truncated Diffusion Model for End-to-End Autonomous Driving},
-  author={Bencheng Liao and Shaoyu Chen and Haoran Yin and Bo Jiang and Cheng Wang and Sixu Yan and Xinbang Zang and Xiangyu Li and Ying Zhang and Qian Zhang and Xinggang Wang},
+  author={Bencheng Liao and Shaoyu Chen and Haoran Yin and Bo Jiang and Cheng Wang and Sixu Yan and Xinbang Zhang and Xiangyu Li and Ying Zhang and Qian Zhang and Xinggang Wang},
   journal={arXiv preprint arXiv:2411.15139},
   year={2024}
 }
