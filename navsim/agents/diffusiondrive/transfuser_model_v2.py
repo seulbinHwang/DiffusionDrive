@@ -400,6 +400,7 @@ class TrajectoryHead(nn.Module):
         self.diffusion_scheduler = DDIMScheduler(
             num_train_timesteps=1000,
             beta_schedule="scaled_linear",
+            prediction_type="sample",
         )
 
 
