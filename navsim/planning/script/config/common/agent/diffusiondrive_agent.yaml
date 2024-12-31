@@ -14,4 +14,4 @@ config:
   latent: False
 
 checkpoint_path: null
-lr: 2e-4
+lr: 6e-4

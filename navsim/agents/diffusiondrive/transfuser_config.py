@@ -120,7 +120,7 @@ class TransfuserConfig:
     lr_steps = [70]
     optimizer_type = "AdamW"
     scheduler_type = "MultiStepLR"
-    cfg_lr_mult = 0.1
+    cfg_lr_mult = 0.5
     opt_paramwise_cfg = {
         "name":{
             "image_encoder":{
