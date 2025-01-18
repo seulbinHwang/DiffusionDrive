@@ -18,13 +18,13 @@
 </div>
 
 ## News
+* **` Jan. 18th, 2025`:** We release the initial version of code and weight on nuScenes, along with documentation and training/evaluation scripts.
 * **` Dec. 16th, 2024`:** We release the initial version of code and weight on NAVSIM, along with documentation and training/evaluation scripts.
 * **` Nov. 25th, 2024`:** We released our paper on [Arxiv](https://arxiv.org/abs/2411.15139). Code/Models are coming soon. Please stay tuned! ☕️
 
 
 ## Table of Contents
 - [Introduction](#introduction)
-- [Qualitative Results on NAVSIM Navtest Split](#qualitative-results-on-navsim-navtest-split)
 - [Video Demo on Real-world Application](#video-demo-on-real-world-application)
 - [Getting Started](#getting-started)
 - [Contact](#contact)
@@ -40,17 +40,7 @@ Diffusion policy exhibits promising multimodal property and distributional expre
 <img src="assets/pipeline.png" />
 </div>
 
-## Qualitative Results on NAVSIM Navtest Split
-<div align="center">
-<b>Going straight with car-following and lane-changing behaviors.</b>
-<img src="assets/straight_0.png" />
-<b>Going straight with diverse lane-changing behavior, which interacts with traffic light and stops at the stop line.</b>
-<img src="assets/straight_1.png" />
-<b>Turning left with diverse lane-changing behavior, which interacts with surrounding agents.</b>
-<img src="assets/left_0.png" />
-<b>Turning right with car-following and overtaking behaviors.</b>
-<img src="assets/right_0.png" />
-</div>
+
 
 ## Video Demo on Real-world Application
 
@@ -63,8 +53,7 @@ https://github.com/user-attachments/assets/bd2364f3-73fd-4c29-b8b2-ead11f78926d
 
 ## Getting Started
 
-- [Getting started from NAVSIM environment preparation](https://github.com/autonomousvision/navsim?tab=readme-ov-file#getting-started-)
-- [Preparation of DiffusionDrive environment](docs/install.md)
+- [Getting started from nuScenes environment preparation](https://github.com/swc-17/SparseDrive/blob/main/docs/quick_start.md)
 - [Training and Evaluation](docs/train_eval.md)
 
 
