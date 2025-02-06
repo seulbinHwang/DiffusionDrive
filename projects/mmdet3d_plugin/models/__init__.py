@@ -19,7 +19,11 @@ from .motion import *
 # add diffusion
 from .sparsedrive_v1 import V1SparseDrive
 from .sparsedrive_head_v1 import V1SparseDriveHead
-
+"""
+__all__는 이 패키지에서 
+from projects.mmdet3d_plugin.models import * 와 같이 임포트할 때 
+어떤 이름들이 공개될지를 명시하는 목록입니다.
+"""
 __all__ = [
     "SparseDrive",
     "SparseDriveHead",

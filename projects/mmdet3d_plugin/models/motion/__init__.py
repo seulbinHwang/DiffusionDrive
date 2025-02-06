@@ -11,3 +11,4 @@ from .diff_motion_blocks import (DiffMotionPlanningRefinementModule, V1DiffMotio
 from .diff_motion_blocks import V4DiffMotionPlanningRefinementModule, V1ModulationLayer
 from .motion_planning_head_v13 import V13MotionPlanningHead
 from .target import V1PlanningTarget
+from .motion_blocks_v11 import V11MotionPlanningRefinementModule

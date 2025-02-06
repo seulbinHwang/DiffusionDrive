@@ -17,7 +17,7 @@ from nuscenes.eval.detection.config import config_factory as det_configs
 from nuscenes.eval.common.config import config_factory as track_configs
 
 import mmcv
-from mmcv.utils import print_log
+from mmengine.logging import print_log
 from mmdet.datasets import DATASETS
 from mmdet.datasets.pipelines import Compose
 from .utils import (

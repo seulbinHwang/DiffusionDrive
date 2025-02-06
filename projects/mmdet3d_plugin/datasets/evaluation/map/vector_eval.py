@@ -261,7 +261,7 @@ class VectorEvaluate(object):
                 round(result_dict[self.id2cat[label]]['AP'], 4),
             ])
         
-        from mmcv.utils import print_log
+        from mmengine.logging import print_log
         print_log('\n'+str(table), logger=logger)
         mAP_normal = 0
         for label in self.id2cat.keys():

@@ -150,10 +150,10 @@ class V13MotionPlanningHead(BaseModule):
         fut_ts=12,
         fut_mode=6,
         ego_fut_ts=6,
-        ego_fut_mode=3,
+        ego_fut_mode=3, # ego_fut_mode = 6
         if_init_timemlp=True,
         motion_anchor=None,
-        plan_anchor=None,
+        plan_anchor=None, # f'data/kmeans/kmeans_plan_{ego_fut_mode}.npy'
         embed_dims=256,
         decouple_attn=False,
         instance_queue=None,
@@ -219,6 +219,7 @@ class V13MotionPlanningHead(BaseModule):
             "modulation": [modulation_layer, PLUGIN_LAYERS],
             "self_attn": [self_attn_model, ATTENTION],
         }
+        # ERROR
         self.interact_layers = nn.ModuleList(
             [
                 build(*self.op_config_map.get(op, [None, None]))
@@ -263,6 +264,7 @@ class V13MotionPlanningHead(BaseModule):
 
         # plan anchor init
         plan_anchor = np.load(plan_anchor)
+        # print("[Dataset]self.plan_anchor.shape", plan_anchor.shape) # (6, 6, 2)
         self.plan_anchor = nn.Parameter(
             torch.tensor(plan_anchor, dtype=torch.float32),
             requires_grad=False,
@@ -587,11 +589,12 @@ class V13MotionPlanningHead(BaseModule):
         plan_anchor = torch.tile(
             self.plan_anchor[None], (bs, 1, 1, 1, 1)
         )# bs, cmd_mode, modal_mode, ego_fut_ts, 2
-
         # =========== mode query init ===========
         motion_mode_query = self.motion_anchor_encoder(gen_sineembed_for_position(motion_anchor[..., -1, :]))
         plan_pos = gen_sineembed_for_position(plan_anchor[..., -1, :])
-        plan_mode_query = self.plan_anchor_encoder(plan_pos).flatten(1, 2).unsqueeze(1)
+        plan_mode_query = self.plan_anchor_encoder(plan_pos)
+        plan_mode_query = plan_mode_query.flatten(1, 2).unsqueeze(1)
+
 
         # # =========== plan query init ===========
         # gt_ego_fut_trajs = metas['gt_ego_fut_trajs']
@@ -841,6 +844,7 @@ class V13MotionPlanningHead(BaseModule):
         # =========== det/map feature/anchor ===========
         instance_feature = det_output["instance_feature"]
         anchor_embed = det_output["anchor_embed"]
+        # print("anchor_embed.shape", anchor_embed.shape) # [1, 900, 256]
         det_classification = det_output["classification"][-1].sigmoid()
         det_anchors = det_output["prediction"][-1]
         det_confidence = det_classification.max(dim=-1).values
@@ -875,7 +879,9 @@ class V13MotionPlanningHead(BaseModule):
             mask,
             anchor_handler,
         )
+        # print("ego_anchor:", ego_anchor.shape) # (1, 1, 11)
         ego_anchor_embed = anchor_encoder(ego_anchor)
+        # print("ego_anchor_embed:", ego_anchor_embed.shape) # (1, 1, 256)
         temp_anchor_embed = anchor_encoder(temp_anchor)
         temp_instance_feature = temp_instance_feature.flatten(0, 1)
         temp_anchor_embed = temp_anchor_embed.flatten(0, 1)
@@ -883,13 +889,16 @@ class V13MotionPlanningHead(BaseModule):
         # import ipdb;ipdb.set_trace()
         # =========== mode anchor init ===========
         motion_anchor = self.get_motion_anchor(det_classification, det_anchors)
+        # (6, 6, 2) -> (1, 6, 6, 2) -> (bs, 1, 6, 6, 2) # bs, cmd_mode, modal_mode, ego_fut_ts, 2
         plan_anchor = torch.tile(
             self.plan_anchor[None], (bs, 1, 1, 1, 1)
-        )# bs, cmd_mode, modal_mode, ego_fut_ts, 2
+        )
 
         # =========== mode query init ===========
         motion_mode_query = self.motion_anchor_encoder(gen_sineembed_for_position(motion_anchor[..., -1, :]))
+        # print("plan_anchor.shape", plan_anchor.shape) # [1, 1, 6, 6, 2]
         plan_pos = gen_sineembed_for_position(plan_anchor[..., -1, :])
+        # print("plan_pos.shape", plan_pos.shape) # [1, 1, 6, 256]
         plan_mode_query = self.plan_anchor_encoder(plan_pos).flatten(1, 2).unsqueeze(1)
 
         # # =========== plan query init ===========
@@ -915,7 +924,10 @@ class V13MotionPlanningHead(BaseModule):
         anchor_embed_selected = torch.cat([anchor_embed_selected, ego_anchor_embed], dim=1)
 
         instance_feature = torch.cat([instance_feature, ego_feature], dim=1)
+        # print("anchor_embed.shape", anchor_embed.shape) # [1, 900, 256]
+        # print("ego_anchor_embed.shape", ego_anchor_embed.shape) # [1, 1, 256]
         anchor_embed = torch.cat([anchor_embed, ego_anchor_embed], dim=1)
+        # print("anchor_embed.shape", anchor_embed.shape) # [1, 901, 256]
         # TODO, need to add traj anchor embed into temp_anchor_embed & temp_instance_feature
 
 
@@ -961,6 +973,9 @@ class V13MotionPlanningHead(BaseModule):
                 )
             elif op == "refine":
                 # import ipdb;ipdb.set_trace()
+                # print("plan_mode_query.shape", plan_mode_query.shape) # [1, 1, 6, 256]
+                # print("anchor_embed.shape", anchor_embed.shape) # [1, 901, 256]
+                # print("num_anchor:", num_anchor) # 900
                 motion_query = motion_mode_query + (instance_feature + anchor_embed)[:, :num_anchor].unsqueeze(2)
                 plan_query = plan_mode_query + (instance_feature + anchor_embed)[:, num_anchor:].unsqueeze(2) 
                 (
@@ -1011,8 +1026,12 @@ class V13MotionPlanningHead(BaseModule):
         roll_timesteps = (np.arange(0, step_num) * step_ratio).round()[::-1].copy().astype(np.int64)
         roll_timesteps = torch.from_numpy(roll_timesteps).to(device)
         # truncate the timesteps to 40
-
+        # print("plan_nav_query.shape", plan_query.shape) # [1, 1, 6, 256]
         plan_nav_query = plan_query.squeeze(1)
+        # ego_fut_mode: 6
+        # TODO: Error
+        # print("plan_nav_query.shape", plan_nav_query.shape) # [1, 6, 256]
+        # print("bs", bs) # 1
         plan_nav_query = plan_nav_query.view(bs,3,self.ego_fut_mode,-1)
         bs_indices = torch.arange(bs, device=plan_query.device)
         cmd = metas['gt_ego_fut_cmd'].argmax(dim=-1)

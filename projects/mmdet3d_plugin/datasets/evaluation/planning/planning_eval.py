@@ -4,7 +4,7 @@ import torch.nn as nn
 import numpy as np
 from shapely.geometry import Polygon
 
-from mmcv.utils import print_log
+from mmengine.logging import print_log
 from mmdet.datasets import build_dataset, build_dataloader
 
 from projects.mmdet3d_plugin.datasets.utils import box3d_to_corners

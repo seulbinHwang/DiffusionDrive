@@ -113,7 +113,6 @@ class V1SparseDrive(BaseDetector):
 
     def simple_test(self, img, **data):
         feature_maps = self.extract_feat(img)
-
         model_outs = self.head(feature_maps, data)
         results = self.head.post_process(model_outs, data)
         output = [{"img_bbox": result} for result in results]

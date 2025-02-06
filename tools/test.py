@@ -161,8 +161,8 @@ def main():
 
                 for m in _module_dir[1:]:
                     _module_path = _module_path + "." + m
-                print(_module_path)
-                plg_lib = importlib.import_module(_module_path)
+                print("_module_path:", _module_path) # projects.mmdet3d_plugin
+                plg_lib = importlib.import_module(_module_path) # <module 'projects.mmdet3d_plugin' from '/home/user/PycharmProjects/DiffusionDrive/projects/mmdet3d_plugin/__init__.py'>
             else:
                 # import dir is the dirpath for the config file
                 _module_dir = os.path.dirname(args.config)

@@ -398,10 +398,10 @@ model = dict(
         ),
         motion_plan_head=dict(
             type='V13MotionPlanningHead', # choose anchor query based on cmd
-            fut_ts=fut_ts,
-            fut_mode=fut_mode,
-            ego_fut_ts=ego_fut_ts,
-            ego_fut_mode=ego_fut_mode,
+            fut_ts=fut_ts, # 12
+            fut_mode=fut_mode, # 6
+            ego_fut_ts=ego_fut_ts, # 6
+            ego_fut_mode=ego_fut_mode, # 6
             if_init_timemlp=False,
             motion_anchor=f'data/kmeans/kmeans_motion_{fut_mode}.npy',
             plan_anchor=f'data/kmeans/kmeans_plan_{ego_fut_mode}.npy',
