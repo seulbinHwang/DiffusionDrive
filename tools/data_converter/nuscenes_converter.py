@@ -94,7 +94,7 @@ def create_nuscenes_infos(root_path,
     available_vers = ['v1.0-trainval', 'v1.0-test', 'v1.0-mini']
     assert version in available_vers
     if version == 'v1.0-trainval':
-        tversionrain_scenes = splits.train
+        train_scenes = splits.train
         val_scenes = splits.val
     elif version == 'v1.0-test':
         train_scenes = splits.test

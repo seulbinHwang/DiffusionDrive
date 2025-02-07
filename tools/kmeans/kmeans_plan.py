@@ -17,10 +17,15 @@ navi_trajs = [[], [], []]
 trajs = []
 for idx in tqdm(range(len(data_infos))):
     info = data_infos[idx]
+    # info['gt_ego_fut_trajs']: (6, 2)
     plan_traj = info['gt_ego_fut_trajs'].cumsum(axis=-2)
+    # plan_traj: (6, 2)
+    # plan_mask: (6,)
     plan_mask = info['gt_ego_fut_masks']
+    # cmd: (3,)
     cmd = info['gt_ego_fut_cmd'].astype(np.int32)
     cmd = cmd.argmax(axis=-1)
+    # cmd: ()
     if not plan_mask.sum() == 6:
         continue
     trajs.append(plan_traj)
