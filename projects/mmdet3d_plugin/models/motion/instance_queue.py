@@ -118,13 +118,14 @@ class InstanceQueue(nn.Module):
         det_output,
         mask,
     ):
-        instance_feature = det_output["instance_feature"]
-        det_anchors = det_output["prediction"][-1]
+        instance_feature = det_output["instance_feature"] # [1, 900, 256]
+        det_anchors = det_output["prediction"][-1] # [1, 900, 11]
 
         if self.period == None:
+            # self.period: [1, 900]
             self.period = instance_feature.new_zeros(instance_feature.shape[:2]).long()
         else:
-            instance_id = det_output['instance_id']
+            instance_id = det_output['instance_id'] #  # [1, 900]
             prev_instance_id = self.prev_instance_id
             match = instance_id[..., None] == prev_instance_id[:, None]
             if self.tracking_threshold > 0:
@@ -201,9 +202,9 @@ class InstanceQueue(nn.Module):
         return ego_feature, ego_anchor
 
     def cache_motion(self, instance_feature, det_output, metas):
-        det_classification = det_output["classification"][-1].sigmoid()
+        det_classification = det_output["classification"][-1].sigmoid()  # [1, 900, 10]
         det_confidence = det_classification.max(dim=-1).values
-        instance_id = det_output['instance_id']
+        instance_id = det_output['instance_id'] # [1, 900]
         self.metas = metas
         self.prev_confidence = det_confidence.detach()
         self.prev_instance_id = instance_id

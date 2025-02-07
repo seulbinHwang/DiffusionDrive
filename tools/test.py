@@ -138,7 +138,6 @@ def main():
 
     if args.out is not None and not args.out.endswith((".pkl", ".pickle")):
         raise ValueError("The output file must be a pkl file.")
-
     cfg = Config.fromfile(args.config)
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
@@ -241,7 +240,7 @@ def main():
 
     # build the model and load checkpoint
     cfg.model.train_cfg = None
-    model = build_detector(cfg.model, test_cfg=cfg.get("test_cfg"))
+    model = build_detector(cfg.model, test_cfg=cfg.get("test_cfg")) # test_cfg = None
     # model = build_model(cfg.model, test_cfg=cfg.get("test_cfg"))
     fp16_cfg = cfg.get("fp16", None)
     if fp16_cfg is not None:

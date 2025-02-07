@@ -252,7 +252,7 @@ class V13MotionPlanningHead(BaseModule):
         self.plan_loss_status = build_loss(plan_loss_status)
 
         # motion init
-        motion_anchor = np.load(motion_anchor)
+        motion_anchor = np.load(motion_anchor) # (10, 6, 12, 2)
         self.motion_anchor = nn.Parameter(
             torch.tensor(motion_anchor, dtype=torch.float32),
             requires_grad=False,
@@ -263,8 +263,8 @@ class V13MotionPlanningHead(BaseModule):
         )
 
         # plan anchor init
-        plan_anchor = np.load(plan_anchor)
-        # print("[Dataset]self.plan_anchor.shape", plan_anchor.shape) # (6, 6, 2)
+        # TODO: checkpoint에서는 (3, 6, 6, 2)로 되어있음. 근데 내 파일에서는 (6, 6, 2)로 되어있음.
+        plan_anchor = np.load(plan_anchor) # (6, 6, 2)
         self.plan_anchor = nn.Parameter(
             torch.tensor(plan_anchor, dtype=torch.float32),
             requires_grad=False,
@@ -328,13 +328,24 @@ class V13MotionPlanningHead(BaseModule):
 
     def get_motion_anchor(
         self, 
-        classification, 
+        classification,  #
         prediction,
     ):
-        cls_ids = classification.argmax(dim=-1)
+        """
+        det_classification
+            det_output['classification'][-1].shape: torch.Size([1, 900, 10])
+        det_anchors
+            det_output['prediction'][-1].shape: torch.Size([1, 900, 11])
+        """
+        cls_ids = classification.argmax(dim=-1) # torch.Size([1, 900])
+        print("cls_ids.shape:", cls_ids.shape)
+        # self.motion_anchor: (10, 6, 12, 2)
+        # motion_anchor: (1, 900, 6, 12, 2)
         motion_anchor = self.motion_anchor[cls_ids]
-        prediction = prediction.detach()
-        return self._agent2lidar(motion_anchor, prediction)
+        prediction = prediction.detach() # (1, 900, 11)
+        # trajs_lidar: [1, 900, 6, 12, 2]
+        trajs_lidar = self._agent2lidar(motion_anchor, prediction)
+        return trajs_lidar
 
     def _agent2lidar(self, trajs, boxes):
         yaw = torch.atan2(boxes[..., SIN_YAW], boxes[..., COS_YAW])
@@ -585,11 +596,22 @@ class V13MotionPlanningHead(BaseModule):
         temp_mask = temp_mask.flatten(0, 1)
         # import ipdb;ipdb.set_trace()
         # =========== mode anchor init ===========
+        """motion_anchor: [1, 900, 6, 12, 2] ( 세계 좌표계 , 아니면 자차기준 좌표계)
+        주변 900개 객체들의 움직임을 예측하기 위한 초기 anchor
+            한 객체마다 (6, 12, 2) 의 초기 anchor
+        """
         motion_anchor = self.get_motion_anchor(det_classification, det_anchors)
+        """
+        weight
+            (3, 6, 6, 2) -> (1, 3, 6, 6, 2) -> (1, 3, 6, 6, 2)
+        file
+            (6, 6, 2) -? (1, 6, 6, 2) 
+        """
         plan_anchor = torch.tile(
             self.plan_anchor[None], (bs, 1, 1, 1, 1)
         )# bs, cmd_mode, modal_mode, ego_fut_ts, 2
         # =========== mode query init ===========
+
         motion_mode_query = self.motion_anchor_encoder(gen_sineembed_for_position(motion_anchor[..., -1, :]))
         plan_pos = gen_sineembed_for_position(plan_anchor[..., -1, :])
         plan_mode_query = self.plan_anchor_encoder(plan_pos)
@@ -837,24 +859,39 @@ class V13MotionPlanningHead(BaseModule):
         map_output,
         feature_maps,
         metas,
-        anchor_encoder,
-        mask,
-        anchor_handler,
+        anchor_encoder, # SparseBox3DEncoder of det_head
+        mask, # InstanceBank.mask of det_head
+        anchor_handler, # InstanceBank.anchor_handler(=Sparse3DKeyPointsGenerator) of det_head
     ):   
         # =========== det/map feature/anchor ===========
-        instance_feature = det_output["instance_feature"]
-        anchor_embed = det_output["anchor_embed"]
-        # print("anchor_embed.shape", anchor_embed.shape) # [1, 900, 256]
+        instance_feature = det_output["instance_feature"] # [1, 900, 256]
+        anchor_embed = det_output["anchor_embed"] # [1, 900, 256]
+        """
+        len(det_output['classification']): 6
+        det_output['classification'][-1].shape: torch.Size([1, 900, 10])
+        """
         det_classification = det_output["classification"][-1].sigmoid()
+        """
+        len(det_output['prediction']): 6
+        det_output['prediction'][-1].shape: torch.Size([1, 900, 11])
+        """
         det_anchors = det_output["prediction"][-1]
         det_confidence = det_classification.max(dim=-1).values
         _, (instance_feature_selected, anchor_embed_selected) = topk(
             det_confidence, self.num_det, instance_feature, anchor_embed
         )
-
-        map_instance_feature = map_output["instance_feature"]
-        map_anchor_embed = map_output["anchor_embed"]
+        ############# map ##################
+        map_instance_feature = map_output["instance_feature"] # [1, 100, 256]
+        map_anchor_embed = map_output["anchor_embed"] # [1, 100, 256]
+        """
+        len(map_output['classification']): 6
+        map_output['classification'][-1].shape: torch.Size([1, 100, 3])
+        """
         map_classification = map_output["classification"][-1].sigmoid()
+        """
+        len(map_output['prediction']): 6
+        map_output['prediction'][-1].shape: torch.Size([1, 100, 40])
+        """
         map_anchors = map_output["prediction"][-1]
         map_confidence = map_classification.max(dim=-1).values
         _, (map_instance_feature_selected, map_anchor_embed_selected) = topk(
@@ -866,40 +903,69 @@ class V13MotionPlanningHead(BaseModule):
         bs, num_anchor, dim = instance_feature.shape
         device = instance_feature.device
         (
-            ego_feature,
-            ego_anchor,
-            temp_instance_feature,
-            temp_anchor,
-            temp_mask,
+            ego_feature, # [1, 1, 256]
+            ego_anchor, # [1, 1, 11]
+            temp_instance_feature, # [1, 901, 1, 256]
+            temp_anchor, # [1, 901, 1, 11]
+            temp_mask, # [1, 901, 1]
         ) = self.instance_queue.get(
             det_output,
             feature_maps,
             metas,
             bs,
             mask,
-            anchor_handler,
+            anchor_handler, # InstanceBank.anchor_handler(=Sparse3DKeyPointsGenerator) of det_head
         )
-        # print("ego_anchor:", ego_anchor.shape) # (1, 1, 11)
+        # ego_anchor_embed: [1, 1, 256] # ego_anchor: [1, 1, 11]
         ego_anchor_embed = anchor_encoder(ego_anchor)
-        # print("ego_anchor_embed:", ego_anchor_embed.shape) # (1, 1, 256)
         temp_anchor_embed = anchor_encoder(temp_anchor)
         temp_instance_feature = temp_instance_feature.flatten(0, 1)
         temp_anchor_embed = temp_anchor_embed.flatten(0, 1)
         temp_mask = temp_mask.flatten(0, 1)
         # import ipdb;ipdb.set_trace()
         # =========== mode anchor init ===========
+        """
+        det_classification
+            det_output['classification'][-1].shape: torch.Size([1, 900, 10])
+        det_anchors
+            det_output['prediction'][-1].shape: torch.Size([1, 900, 11])
+        """
+        """motion_anchor: [1, 900, 6, 12, 2] ( 세계 좌표계 , 아니면 자차기준 좌표계)
+        주변 900개 객체들의 움직임을 예측하기 위한 초기 anchor
+            한 객체마다 (6, 12, 2) 의 초기 anchor
+        """
         motion_anchor = self.get_motion_anchor(det_classification, det_anchors)
         # (6, 6, 2) -> (1, 6, 6, 2) -> (bs, 1, 6, 6, 2) # bs, cmd_mode, modal_mode, ego_fut_ts, 2
+        """ # bs, cmd_mode, modal_mode, ego_fut_ts, 2
+        weight
+            (3, 6, 6, 2) -> (1, 3, 6, 6, 2) -> (1, 3, 6, 6, 2)
+        file
+            (6, 6, 2) -? (1, 6, 6, 2) -> (bs, 1, 6, 6, 2)
+        """
         plan_anchor = torch.tile(
             self.plan_anchor[None], (bs, 1, 1, 1, 1)
         )
-
         # =========== mode query init ===========
+        """ motion_anchor: [1, 900, 6, 12, 2]
+        motion_anchor[..., -1, :]: [1, 900, 6, 2] (마지막 점의 위치를 말하는 것!)
+        gen_sineembed_for_position(motion_anchor[..., -1, :]).shape: torch.Size([1, 900, 6, 256])
+        motion_mode_query: [1, 900, 6, 256]
+        """
         motion_mode_query = self.motion_anchor_encoder(gen_sineembed_for_position(motion_anchor[..., -1, :]))
         # print("plan_anchor.shape", plan_anchor.shape) # [1, 1, 6, 6, 2]
+        """ # bs, cmd_mode, modal_mode, ego_fut_ts, 2
+        weight
+            (1, 3, 6, 6, 2) -> (1, 3, 6, 2) -(gen_sineembed_for_position)-> (1, 3, 6, 256)
+            plan_anchor_encoder -> (1, 3, 6, 256)
+            plan_mode_query -> (1, 1, 18, 256) # bs, 1, cmd_mode*modal_mode, 256
+        file
+            (1, 1, 6, 6, 2) -> (1, 1, 6, 2) -(gen_sineembed_for_position)-> (1, 1, 6, 256)
+            plan_anchor_encoder -> (1, 1, 6, 256)
+            plan_mode_query -> (1, 1, 6, 256) # bs, 1, cmd_mode*modal_mode, 256
+        """
         plan_pos = gen_sineembed_for_position(plan_anchor[..., -1, :])
-        # print("plan_pos.shape", plan_pos.shape) # [1, 1, 6, 256]
-        plan_mode_query = self.plan_anchor_encoder(plan_pos).flatten(1, 2).unsqueeze(1)
+        a = self.plan_anchor_encoder(plan_pos) # (1, 1, 6, 256)
+        plan_mode_query = a.flatten(1, 2).unsqueeze(1)
 
         # # =========== plan query init ===========
         # gt_ego_fut_trajs = metas['gt_ego_fut_trajs']
@@ -972,12 +1038,24 @@ class V13MotionPlanningHead(BaseModule):
                     key_pos=map_anchor_embed_selected,
                 )
             elif op == "refine":
-                # import ipdb;ipdb.set_trace()
-                # print("plan_mode_query.shape", plan_mode_query.shape) # [1, 1, 6, 256]
-                # print("anchor_embed.shape", anchor_embed.shape) # [1, 901, 256]
-                # print("num_anchor:", num_anchor) # 900
+                """
+                motion_mode_query: (1, 900, 6, 256)
+                instance_feature: (1, 901, 256)
+                anchor_embed: (1, 901, 256)
+                
+                motion_query.shape: (1, 900, 6, 256) + (1, 900, 1, 256) -> (1, 900, 6, 256)
+                
+                """
+                """
+                weight
+                    plan_mode_query -> (1, 1, 18, 256) # bs, 1, cmd_mode(=3)*modal_mode, 256
+                    plan_query.shape: (1, 1, 18, 256) + (1, 1, 1, 256) -> (1, 1, 18, 256)
+                file
+                    plan_mode_query -> (1, 1, 6, 256) # bs, 1, cmd_mode(=1)*modal_mode, 256
+                    plan_query.shape: (1, 1, 6, 256) + (1, 1, 1, 256) -> (1, 1, 6, 256)
+                """
                 motion_query = motion_mode_query + (instance_feature + anchor_embed)[:, :num_anchor].unsqueeze(2)
-                plan_query = plan_mode_query + (instance_feature + anchor_embed)[:, num_anchor:].unsqueeze(2) 
+                plan_query = plan_mode_query + (instance_feature + anchor_embed)[:, num_anchor:].unsqueeze(2)
                 (
                     motion_cls,
                     motion_reg,
@@ -1026,16 +1104,30 @@ class V13MotionPlanningHead(BaseModule):
         roll_timesteps = (np.arange(0, step_num) * step_ratio).round()[::-1].copy().astype(np.int64)
         roll_timesteps = torch.from_numpy(roll_timesteps).to(device)
         # truncate the timesteps to 40
-        # print("plan_nav_query.shape", plan_query.shape) # [1, 1, 6, 256]
+        # print("plan_query.shape", plan_query.shape) # [1, 1, 6, 256]
+        """
+        weight
+            plan_query.shape: (1, 1, 18, 256) + (1, 1, 1, 256) -> (1, 1, 18, 256)  # bs, 1, cmd_mode(=3)*modal_mode, 256
+            plan_nav_query -> (1, 18, 256) # (bs, cmd_mode*modal_mode, 256)
+            plan_nav_query -> (1, 3, 6(=self.ego_fut_mode), 256) 
+        file
+            plan_query.shape: (1, 1, 6, 256) + (1, 1, 1, 256) -> (1, 1, 6, 256) # bs, 1, cmd_mode(=1)*modal_mode, 256
+            plan_nav_query -> (1, 6, 256) # (bs, cmd_mode*modal_mode, 256)
+            plan_nav_query -> 에러 발생
+        """
         plan_nav_query = plan_query.squeeze(1)
         # ego_fut_mode: 6
-        # TODO: Error
-        # print("plan_nav_query.shape", plan_nav_query.shape) # [1, 6, 256]
-        # print("bs", bs) # 1
+        """
+        print("metas['gt_ego_fut_cmd'].shape:", metas['gt_ego_fut_cmd'].shape) # [1, 3]
+        print("metas['gt_ego_fut_cmd'].argmax(dim=-1).shape:", metas['gt_ego_fut_cmd'].argmax(dim=-1).shape) # [1]
+        """
         plan_nav_query = plan_nav_query.view(bs,3,self.ego_fut_mode,-1)
         bs_indices = torch.arange(bs, device=plan_query.device)
         cmd = metas['gt_ego_fut_cmd'].argmax(dim=-1)
-        cmd_plan_nav_query = plan_nav_query[bs_indices, cmd]
+        """
+        cmd_plan_nav_query: ego future command gt를 이용하여 만든 선별된 query
+        """
+        cmd_plan_nav_query = plan_nav_query[bs_indices, cmd] # (b, self.ego_fut_mode, 256)
         # import ipdb;ipdb.set_trace()
 
         cmd_plan_anchor = plan_anchor[bs_indices, cmd]
