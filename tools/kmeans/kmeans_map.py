@@ -17,7 +17,7 @@ data_infos = list(sorted(data["infos"], key=lambda e: e["timestamp"]))
 center = []
 for idx in tqdm(range(len(data_infos))):
     for cls, geoms in data_infos[idx]["map_annos"].items():
-        for geom in geoms:  
+        for geom in geoms:
             center.append(geom.mean(axis=0))
 center = np.stack(center, axis=0)
 center = KMeans(n_clusters=K).fit(center).cluster_centers_

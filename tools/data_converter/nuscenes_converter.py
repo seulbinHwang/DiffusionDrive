@@ -38,6 +38,7 @@ NameMapping = {
     "vehicle.truck": "truck",
 }
 
+
 def quart_to_rpy(qua):
     x, y, z, w = qua
     roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
@@ -45,11 +46,14 @@ def quart_to_rpy(qua):
     yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (z * z + y * y))
     return roll, pitch, yaw
 
+
 def locate_message(utimes, utime):
     i = np.searchsorted(utimes, utime)
-    if i == len(utimes) or (i > 0 and utime - utimes[i-1] < utimes[i] - utime):
+    if i == len(utimes) or (i > 0 and
+                            utime - utimes[i - 1] < utimes[i] - utime):
         i -= 1
     return i
+
 
 def geom2anno(map_geoms):
     MAP_CLASSES = (
@@ -67,13 +71,16 @@ def geom2anno(map_geoms):
                 vectors[label].append(line)
     return vectors
 
-def create_nuscenes_infos(root_path,
-                          out_path,
-                          can_bus_root_path,
-                          info_prefix,
-                          version='v1.0-trainval',
-                          max_sweeps=10,
-                          roi_size=(30, 60),):
+
+def create_nuscenes_infos(
+        root_path,
+        out_path,
+        can_bus_root_path,
+        info_prefix,
+        version='v1.0-trainval',
+        max_sweeps=10,
+        roi_size=(30, 60),
+):
     """Create info file of nuscene dataset.
 
     Given the raw data, generate its related info file in pkl format.
@@ -126,30 +133,35 @@ def create_nuscenes_infos(root_path,
     if test:
         print('test scene: {}'.format(len(train_scenes)))
     else:
-        print('train scene: {}, val scene: {}'.format(
-            len(train_scenes), len(val_scenes)))
+        print('train scene: {}, val scene: {}'.format(len(train_scenes),
+                                                      len(val_scenes)))
 
     train_nusc_infos, val_nusc_infos = _fill_trainval_infos(
-        nusc, nusc_map_extractor, nusc_can_bus, train_scenes, val_scenes, test, max_sweeps=max_sweeps)
+        nusc,
+        nusc_map_extractor,
+        nusc_can_bus,
+        train_scenes,
+        val_scenes,
+        test,
+        max_sweeps=max_sweeps)
 
     metadata = dict(version=version)
     if test:
         print('test sample: {}'.format(len(train_nusc_infos)))
         data = dict(infos=train_nusc_infos, metadata=metadata)
-        info_path = osp.join(out_path,
-                             '{}_infos_test.pkl'.format(info_prefix))
+        info_path = osp.join(out_path, '{}_infos_test.pkl'.format(info_prefix))
         mmcv.dump(data, info_path)
     else:
-        print('train sample: {}, val sample: {}'.format(
-            len(train_nusc_infos), len(val_nusc_infos)))
+        print('train sample: {}, val sample: {}'.format(len(train_nusc_infos),
+                                                        len(val_nusc_infos)))
         data = dict(infos=train_nusc_infos, metadata=metadata)
-        info_path = osp.join(out_path,
-                             '{}_infos_train.pkl'.format(info_prefix))
+        info_path = osp.join(out_path, '{}_infos_train.pkl'.format(info_prefix))
         mmcv.dump(data, info_path)
         data['infos'] = val_nusc_infos
         info_val_path = osp.join(out_path,
                                  '{}_infos_val.pkl'.format(info_prefix))
         mmcv.dump(data, info_val_path)
+
 
 def get_available_scenes(nusc):
     """Get available scenes from the input nuscenes class.
@@ -165,31 +177,28 @@ def get_available_scenes(nusc):
             available scenes.
     """
     available_scenes = []
-    print('total scene num: {}'.format(len(nusc.scene)))
+    total_scenes = len(nusc.scene)
+    print('total scene num: {}'.format(total_scenes))
+
     for scene in nusc.scene:
-        scene_token = scene['token']
-        scene_rec = nusc.get('scene', scene_token)
+        scene_rec = nusc.get('scene', scene['token'])
         sample_rec = nusc.get('sample', scene_rec['first_sample_token'])
-        sd_rec = nusc.get('sample_data', sample_rec['data']['LIDAR_TOP'])
-        has_more_frames = True
-        scene_not_exist = False
-        while has_more_frames:
-            lidar_path, boxes, _ = nusc.get_sample_data(sd_rec['token'])
-            lidar_path = str(lidar_path)
-            if os.getcwd() in lidar_path:
-                # path from lyftdataset is absolute path
-                lidar_path = lidar_path.split(f'{os.getcwd()}/')[-1]
-                # relative path
-            if not mmcv.is_filepath(lidar_path):
-                scene_not_exist = True
-                break
-            else:
-                break
-        if scene_not_exist:
+        lidar_token = sample_rec['data']['LIDAR_TOP']
+        # 첫 번째 LIDAR_TOP 파일 경로 가져오기
+        lidar_path, _, _ = nusc.get_sample_data(lidar_token)
+        lidar_path = str(lidar_path)
+        # 절대경로인 경우, os.getcwd()로부터의 상대 경로로 변환 (필요 시)
+        if os.getcwd() in lidar_path:
+            lidar_path = lidar_path.split(f'{os.getcwd()}/')[-1]
+        # 실제로 파일이 존재하는지 확인
+        if not os.path.exists(lidar_path):
+            # 파일이 없으므로 해당 scene은 건너뜀
             continue
         available_scenes.append(scene)
+
     print('exist scene num: {}'.format(len(available_scenes)))
     return available_scenes
+
 
 def _fill_trainval_infos(nusc,
                          nusc_map_extractor,
@@ -222,14 +231,20 @@ def _fill_trainval_infos(nusc,
 
     predict_helper = PredictHelper(nusc)
     for sample in mmcv.track_iter_progress(nusc.sample):
-        map_location = nusc.get('log', nusc.get('scene', sample['scene_token'])['log_token'])['location']
+        map_location = nusc.get(
+            'log',
+            nusc.get('scene', sample['scene_token'])['log_token'])['location']
         lidar_token = sample['data']['LIDAR_TOP']
         sd_rec = nusc.get('sample_data', lidar_token)
         cs_record = nusc.get('calibrated_sensor',
                              sd_rec['calibrated_sensor_token'])
         pose_record = nusc.get('ego_pose', sd_rec['ego_pose_token'])
         lidar_path, boxes, _ = nusc.get_sample_data(lidar_token)
-        mmcv.check_file_exist(lidar_path)
+        try:
+            mmcv.check_file_exist(lidar_path) # Error: File not found
+        except:
+            # move to next sample if lidar_path is not valid
+            continue
 
         info = {
             'lidar_path': lidar_path,
@@ -255,19 +270,18 @@ def _fill_trainval_infos(nusc,
         # extract map annos
         lidar2ego = np.eye(4)
         lidar2ego[:3, :3] = Quaternion(
-            info["lidar2ego_rotation"]
-        ).rotation_matrix
+            info["lidar2ego_rotation"]).rotation_matrix
         lidar2ego[:3, 3] = np.array(info["lidar2ego_translation"])
         ego2global = np.eye(4)
         ego2global[:3, :3] = Quaternion(
-            info["ego2global_rotation"]
-        ).rotation_matrix
+            info["ego2global_rotation"]).rotation_matrix
         ego2global[:3, 3] = np.array(info["ego2global_translation"])
         lidar2global = ego2global @ lidar2ego
 
         translation = list(lidar2global[:3, 3])
         rotation = list(Quaternion(matrix=lidar2global).q)
-        map_geoms = nusc_map_extractor.get_map_geom(map_location, translation, rotation)
+        map_geoms = nusc_map_extractor.get_map_geom(map_location, translation,
+                                                    rotation)
         map_annos = geom2anno(map_geoms)
         info['map_annos'] = map_annos
 
@@ -304,13 +318,12 @@ def _fill_trainval_infos(nusc,
         if not test:
             # object detection annos: boxes (locs, dims, yaw, velocity), names and valid flags
             annotations = [
-                nusc.get('sample_annotation', token)
-                for token in sample['anns']
+                nusc.get('sample_annotation', token) for token in sample['anns']
             ]
             locs = np.array([b.center for b in boxes]).reshape(-1, 3)
             dims = np.array([b.wlh for b in boxes]).reshape(-1, 3)
-            rots = np.array([b.orientation.yaw_pitch_roll[0]
-                             for b in boxes]).reshape(-1, 1)
+            rots = np.array([b.orientation.yaw_pitch_roll[0] for b in boxes
+                            ]).reshape(-1, 1)
             velocity = np.array(
                 [nusc.box_velocity(token)[:2] for token in sample['anns']])
             # convert velo from global to lidar
@@ -334,10 +347,12 @@ def _fill_trainval_infos(nusc,
             gt_boxes = np.concatenate([locs, dims[:, [1, 0, 2]], rots], axis=1)
             assert len(gt_boxes) == len(
                 annotations), f'{len(gt_boxes)}, {len(annotations)}'
-            
+
             # object tracking annos: instance_ids
-            instance_inds = [nusc.getind('instance', anno['instance_token'])
-                             for anno in annotations]
+            instance_inds = [
+                nusc.getind('instance', anno['instance_token'])
+                for anno in annotations
+            ]
 
             # motion prediction annos: future trajectories offset in lidar frame and valid mask
             num_box = len(boxes)
@@ -346,19 +361,21 @@ def _fill_trainval_infos(nusc,
             for i, anno in enumerate(annotations):
                 instance_token = anno['instance_token']
                 fut_traj_local = predict_helper.get_future_for_agent(
-                    instance_token, 
-                    sample['token'], 
-                    seconds=fut_ts/2, 
-                    in_agent_frame=True
-                )
+                    instance_token,
+                    sample['token'],
+                    seconds=fut_ts / 2,
+                    in_agent_frame=True)
                 if fut_traj_local.shape[0] > 0:
                     box = boxes[i]
                     trans = box.center
                     rot = Quaternion(matrix=box.rotation_matrix)
-                    fut_traj_scene = convert_local_coords_to_global(fut_traj_local, trans, rot)
+                    fut_traj_scene = convert_local_coords_to_global(
+                        fut_traj_local, trans, rot)
                     valid_step = fut_traj_scene.shape[0]
                     gt_fut_trajs[i, 0] = fut_traj_scene[0] - box.center[:2]
-                    gt_fut_trajs[i, 1:valid_step] = fut_traj_scene[1:] - fut_traj_scene[:-1]
+                    gt_fut_trajs[
+                        i,
+                        1:valid_step] = fut_traj_scene[1:] - fut_traj_scene[:-1]
                     gt_fut_masks[i, :valid_step] = 1
 
             # motion planning annos: future trajectories offset in lidar frame and valid mask
@@ -371,13 +388,14 @@ def _fill_trainval_infos(nusc,
                 ego_fut_trajs[i] = pose_mat[:3, 3]
                 ego_fut_masks[i] = 1
                 if sample_cur['next'] == '':
-                    ego_fut_trajs[i+1:] = ego_fut_trajs[i]
+                    ego_fut_trajs[i + 1:] = ego_fut_trajs[i]
                     break
                 else:
                     sample_cur = nusc.get('sample', sample_cur['next'])
             # global to ego
             ego_fut_trajs = ego_fut_trajs - np.array(pose_record['translation'])
-            rot_mat = Quaternion(pose_record['rotation']).inverse.rotation_matrix
+            rot_mat = Quaternion(
+                pose_record['rotation']).inverse.rotation_matrix
             ego_fut_trajs = np.dot(rot_mat, ego_fut_trajs.T).T
             # ego to lidar
             ego_fut_trajs = ego_fut_trajs - np.array(cs_record['translation'])
@@ -391,7 +409,7 @@ def _fill_trainval_infos(nusc,
             else:
                 command = np.array([0, 0, 1])  # Go Straight
             # get offset
-            ego_fut_trajs = ego_fut_trajs[1:] - ego_fut_trajs[:-1]      
+            ego_fut_trajs = ego_fut_trajs[1:] - ego_fut_trajs[:-1]
 
             info['gt_boxes'] = gt_boxes
             info['gt_names'] = names
@@ -416,12 +434,14 @@ def _fill_trainval_infos(nusc,
 
     return train_nusc_infos, val_nusc_infos
 
+
 def get_ego_status(nusc, nusc_can_bus, sample):
     ego_status = []
     ref_scene = nusc.get("scene", sample['scene_token'])
     try:
-        pose_msgs = nusc_can_bus.get_messages(ref_scene['name'],'pose')
-        steer_msgs = nusc_can_bus.get_messages(ref_scene['name'], 'steeranglefeedback')
+        pose_msgs = nusc_can_bus.get_messages(ref_scene['name'], 'pose')
+        steer_msgs = nusc_can_bus.get_messages(ref_scene['name'],
+                                               'steeranglefeedback')
         pose_uts = [msg['utime'] for msg in pose_msgs]
         steer_uts = [msg['utime'] for msg in steer_msgs]
         ref_utime = sample['timestamp']
@@ -429,26 +449,38 @@ def get_ego_status(nusc, nusc_can_bus, sample):
         pose_data = pose_msgs[pose_index]
         steer_index = locate_message(steer_uts, ref_utime)
         steer_data = steer_msgs[steer_index]
-        ego_status.extend(pose_data["accel"]) # acceleration in ego vehicle frame, m/s/s
-        ego_status.extend(pose_data["rotation_rate"]) # angular velocity in ego vehicle frame, rad/s
-        ego_status.extend(pose_data["vel"]) # velocity in ego vehicle frame, m/s
-        ego_status.append(steer_data["value"]) # steering angle, positive: left turn, negative: right turn
+        ego_status.extend(
+            pose_data["accel"])  # acceleration in ego vehicle frame, m/s/s
+        ego_status.extend(pose_data["rotation_rate"]
+                         )  # angular velocity in ego vehicle frame, rad/s
+        ego_status.extend(
+            pose_data["vel"])  # velocity in ego vehicle frame, m/s
+        ego_status.append(
+            steer_data["value"]
+        )  # steering angle, positive: left turn, negative: right turn
     except:
         ego_status = [0] * 10
-    
+
     return np.array(ego_status).astype(np.float32)
+
 
 def get_global_sensor_pose(rec, nusc):
     lidar_sample_data = nusc.get('sample_data', rec['data']['LIDAR_TOP'])
 
     pose_record = nusc.get("ego_pose", lidar_sample_data["ego_pose_token"])
-    cs_record = nusc.get("calibrated_sensor", lidar_sample_data["calibrated_sensor_token"])
+    cs_record = nusc.get("calibrated_sensor",
+                         lidar_sample_data["calibrated_sensor_token"])
 
-    ego2global = transform_matrix(pose_record["translation"], Quaternion(pose_record["rotation"]), inverse=False)
-    sensor2ego = transform_matrix(cs_record["translation"], Quaternion(cs_record["rotation"]), inverse=False)
+    ego2global = transform_matrix(pose_record["translation"],
+                                  Quaternion(pose_record["rotation"]),
+                                  inverse=False)
+    sensor2ego = transform_matrix(cs_record["translation"],
+                                  Quaternion(cs_record["rotation"]),
+                                  inverse=False)
     pose = ego2global.dot(sensor2ego)
 
     return pose
+
 
 def obtain_sensor2top(nusc,
                       sensor_token,
@@ -475,8 +507,7 @@ def obtain_sensor2top(nusc,
         sweep (dict): Sweep information after transformation.
     """
     sd_rec = nusc.get('sample_data', sensor_token)
-    cs_record = nusc.get('calibrated_sensor',
-                         sd_rec['calibrated_sensor_token'])
+    cs_record = nusc.get('calibrated_sensor', sd_rec['calibrated_sensor_token'])
     pose_record = nusc.get('ego_pose', sd_rec['ego_pose_token'])
     data_path = str(nusc.get_sample_data_path(sd_rec['token']))
     if os.getcwd() in data_path:  # path from lyftdataset is absolute path
@@ -503,13 +534,14 @@ def obtain_sensor2top(nusc,
     e2g_r_s_mat = Quaternion(e2g_r_s).rotation_matrix
     R = (l2e_r_s_mat.T @ e2g_r_s_mat.T) @ (
         np.linalg.inv(e2g_r_mat).T @ np.linalg.inv(l2e_r_mat).T)
-    T = (l2e_t_s @ e2g_r_s_mat.T + e2g_t_s) @ (
-        np.linalg.inv(e2g_r_mat).T @ np.linalg.inv(l2e_r_mat).T)
+    T = (l2e_t_s @ e2g_r_s_mat.T +
+         e2g_t_s) @ (np.linalg.inv(e2g_r_mat).T @ np.linalg.inv(l2e_r_mat).T)
     T -= e2g_t @ (np.linalg.inv(e2g_r_mat).T @ np.linalg.inv(l2e_r_mat).T
-                  ) + l2e_t @ np.linalg.inv(l2e_r_mat).T
+                 ) + l2e_t @ np.linalg.inv(l2e_r_mat).T
     sweep['sensor2lidar_rotation'] = R.T  # points @ R.T + T
     sweep['sensor2lidar_translation'] = T
     return sweep
+
 
 def nuscenes_data_prep(root_path,
                        can_bus_root_path,
@@ -531,72 +563,70 @@ def nuscenes_data_prep(root_path,
         out_dir (str): Output directory of the groundtruth database info.
         max_sweeps (int): Number of input consecutive frames. Default: 10
     """
-    create_nuscenes_infos(
-        root_path, out_dir, can_bus_root_path, info_prefix, version=version, max_sweeps=max_sweeps)
+    create_nuscenes_infos(root_path,
+                          out_dir,
+                          can_bus_root_path,
+                          info_prefix,
+                          version=version,
+                          max_sweeps=max_sweeps)
 
 
 parser = argparse.ArgumentParser(description='Data converter arg parser')
 parser.add_argument('dataset', metavar='kitti', help='name of the dataset')
-parser.add_argument(
-    '--root-path',
-    type=str,
-    default='./data/kitti',
-    help='specify the root path of dataset')
-parser.add_argument(
-    '--canbus',
-    type=str,
-    default='./data',
-    help='specify the root path of nuScenes canbus')
-parser.add_argument(
-    '--version',
-    type=str,
-    default='v1.0',
-    required=False,
-    help='specify the dataset version, no need for kitti')
-parser.add_argument(
-    '--max-sweeps',
-    type=int,
-    default=10,
-    required=False,
-    help='specify sweeps of lidar per example')
-parser.add_argument(
-    '--out-dir',
-    type=str,
-    default='./data/kitti',
-    required='False',
-    help='name of info pkl')
+parser.add_argument('--root-path',
+                    type=str,
+                    default='./data/kitti',
+                    help='specify the root path of dataset')
+parser.add_argument('--canbus',
+                    type=str,
+                    default='./data',
+                    help='specify the root path of nuScenes canbus')
+parser.add_argument('--version',
+                    type=str,
+                    default='v1.0',
+                    required=False,
+                    help='specify the dataset version, no need for kitti')
+parser.add_argument('--max-sweeps',
+                    type=int,
+                    default=10,
+                    required=False,
+                    help='specify sweeps of lidar per example')
+parser.add_argument('--out-dir',
+                    type=str,
+                    default='./data/kitti',
+                    required='False',
+                    help='name of info pkl')
 parser.add_argument('--extra-tag', type=str, default='kitti')
-parser.add_argument(
-    '--workers', type=int, default=4, help='number of threads to be used')
+parser.add_argument('--workers',
+                    type=int,
+                    default=4,
+                    help='number of threads to be used')
 args = parser.parse_args()
 
 if __name__ == '__main__':
     if args.dataset == 'nuscenes' and args.version != 'v1.0-mini':
         train_version = f'{args.version}-trainval'
-        nuscenes_data_prep(
-            root_path=args.root_path,
-            can_bus_root_path=args.canbus,
-            info_prefix=args.extra_tag,
-            version=train_version,
-            dataset_name='NuScenesDataset',
-            out_dir=args.out_dir,
-            max_sweeps=args.max_sweeps)
+        nuscenes_data_prep(root_path=args.root_path,
+                           can_bus_root_path=args.canbus,
+                           info_prefix=args.extra_tag,
+                           version=train_version,
+                           dataset_name='NuScenesDataset',
+                           out_dir=args.out_dir,
+                           max_sweeps=args.max_sweeps)
         test_version = f'{args.version}-test'
-        nuscenes_data_prep(
-            root_path=args.root_path,
-            can_bus_root_path=args.canbus,
-            info_prefix=args.extra_tag,
-            version=test_version,
-            dataset_name='NuScenesDataset',
-            out_dir=args.out_dir,
-            max_sweeps=args.max_sweeps)
+        nuscenes_data_prep(root_path=args.root_path,
+                           can_bus_root_path=args.canbus,
+                           info_prefix=args.extra_tag,
+                           version=test_version,
+                           dataset_name='NuScenesDataset',
+                           out_dir=args.out_dir,
+                           max_sweeps=args.max_sweeps)
     elif args.dataset == 'nuscenes' and args.version == 'v1.0-mini':
         train_version = f'{args.version}'
-        nuscenes_data_prep(
-            root_path=args.root_path,
-            can_bus_root_path=args.canbus,
-            info_prefix=args.extra_tag,
-            version=train_version,
-            dataset_name='NuScenesDataset',
-            out_dir=args.out_dir,
-            max_sweeps=args.max_sweeps)
+        nuscenes_data_prep(root_path=args.root_path,
+                           can_bus_root_path=args.canbus,
+                           info_prefix=args.extra_tag,
+                           version=train_version,
+                           dataset_name='NuScenesDataset',
+                           out_dir=args.out_dir,
+                           max_sweeps=args.max_sweeps)

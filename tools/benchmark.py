@@ -6,6 +6,7 @@ from mmcv import Config
 from mmcv.parallel import MMDataParallel
 from mmcv.runner import load_checkpoint, wrap_fp16_model
 import sys
+
 sys.path.append('.')
 from projects.mmdet3d_plugin.datasets.builder import build_dataloader
 from projects.mmdet3d_plugin.datasets import custom_build_dataset
@@ -19,8 +20,9 @@ def parse_args():
     parser.add_argument('config', help='test config file path')
     parser.add_argument('--checkpoint', default=None, help='checkpoint file')
     parser.add_argument('--samples', default=1000, help='samples to benchmark')
-    parser.add_argument(
-        '--log-interval', default=50, help='interval of logging')
+    parser.add_argument('--log-interval',
+                        default=50,
+                        help='interval of logging')
     parser.add_argument(
         '--fuse-conv-bn',
         action='store_true',
@@ -33,9 +35,7 @@ def parse_args():
 def get_max_memory(model):
     device = getattr(model, 'output_device', None)
     mem = torch.cuda.max_memory_allocated(device=device)
-    mem_mb = torch.tensor([mem / (1024 * 1024)],
-        dtype=torch.int,
-        device=device)
+    mem_mb = torch.tensor([mem / (1024 * 1024)], dtype=torch.int, device=device)
     return mem_mb.item()
 
 
@@ -43,6 +43,7 @@ def main():
     args = parse_args()
     get_flops_params(args)
     get_mem_fps(args)
+
 
 def get_mem_fps(args):
     cfg = Config.fromfile(args.config)
@@ -56,12 +57,11 @@ def get_mem_fps(args):
     # TODO: support multiple images per gpu (only minor changes are needed)
     print(cfg.data.test)
     dataset = custom_build_dataset(cfg.data.test)
-    data_loader = build_dataloader(
-        dataset,
-        samples_per_gpu=1,
-        workers_per_gpu=cfg.data.workers_per_gpu,
-        dist=False,
-        shuffle=False)
+    data_loader = build_dataloader(dataset,
+                                   samples_per_gpu=1,
+                                   workers_per_gpu=cfg.data.workers_per_gpu,
+                                   dist=False,
+                                   shuffle=False)
 
     # build the model and load checkpoint
     cfg.model.train_cfg = None
@@ -135,32 +135,26 @@ def get_flops_params(args):
     model.eval()
 
     bilinear_flops = 11
-    num_key_pts_det = (
-        cfg.model["head"]['det_head']["deformable_model"]["kps_generator"]["num_learnable_pts"]
-        + len(cfg.model["head"]['det_head']["deformable_model"]["kps_generator"]["fix_scale"])
-    )
+    num_key_pts_det = (cfg.model["head"]['det_head']["deformable_model"]
+                       ["kps_generator"]["num_learnable_pts"] +
+                       len(cfg.model["head"]['det_head']["deformable_model"]
+                           ["kps_generator"]["fix_scale"]))
     deformable_agg_flops_det = (
-        cfg.num_decoder
-        * cfg.embed_dims
-        * cfg.num_levels
-        * cfg.model["head"]['det_head']["instance_bank"]["num_anchor"]
-        * cfg.model["head"]['det_head']["deformable_model"]["num_cams"]
-        * num_key_pts_det
-        * bilinear_flops
-    )
+        cfg.num_decoder * cfg.embed_dims * cfg.num_levels *
+        cfg.model["head"]['det_head']["instance_bank"]["num_anchor"] *
+        cfg.model["head"]['det_head']["deformable_model"]["num_cams"] *
+        num_key_pts_det * bilinear_flops)
     num_key_pts_map = (
-        cfg.model["head"]['map_head']["deformable_model"]["kps_generator"]["num_learnable_pts"]
-        + len(cfg.model["head"]['map_head']["deformable_model"]["kps_generator"]["fix_height"])
-    ) * cfg.model["head"]['map_head']["deformable_model"]["kps_generator"]["num_sample"]
+        cfg.model["head"]['map_head']["deformable_model"]["kps_generator"]
+        ["num_learnable_pts"] +
+        len(cfg.model["head"]['map_head']["deformable_model"]["kps_generator"]
+            ["fix_height"])) * cfg.model["head"]['map_head'][
+                "deformable_model"]["kps_generator"]["num_sample"]
     deformable_agg_flops_map = (
-        cfg.num_decoder
-        * cfg.embed_dims
-        * cfg.num_levels
-        * cfg.model["head"]['map_head']["instance_bank"]["num_anchor"]
-        * cfg.model["head"]['map_head']["deformable_model"]["num_cams"]
-        * num_key_pts_map
-        * bilinear_flops
-    )
+        cfg.num_decoder * cfg.embed_dims * cfg.num_levels *
+        cfg.model["head"]['map_head']["instance_bank"]["num_anchor"] *
+        cfg.model["head"]['map_head']["deformable_model"]["num_cams"] *
+        num_key_pts_map * bilinear_flops)
     deformable_agg_flops = deformable_agg_flops_det + deformable_agg_flops_map
 
     for module in ["total", "img_backbone", "img_neck", "head"]:
@@ -170,7 +164,7 @@ def get_flops_params(args):
             flops_model = add_flops_counting_methods(model)
         flops_model.eval()
         flops_model.start_flops_count()
-        
+
         if module == "img_backbone":
             flops_model(data["img"].flatten(0, 1))
         elif module == "img_neck":
@@ -192,6 +186,7 @@ def get_flops_params(args):
             f"FLOPs={flops_count/ 10.**9:>8.4f} G / {flops_count/total_flops*100:>6.2f}%, "
             f"Params={params_count/10**6:>8.4f} M / {params_count/total_params*100:>6.2f}%."
         )
+
 
 if __name__ == '__main__':
     main()

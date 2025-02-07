@@ -33,9 +33,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train a detector")
     parser.add_argument("config", help="train config file path")
     parser.add_argument("--work-dir", help="the dir to save logs and models")
-    parser.add_argument(
-        "--resume-from", help="the checkpoint file to resume from"
-    )
+    parser.add_argument("--resume-from",
+                        help="the checkpoint file to resume from")
     parser.add_argument(
         "--no-validate",
         action="store_true",
@@ -106,8 +105,7 @@ def parse_args():
     if args.options and args.cfg_options:
         raise ValueError(
             "--options and --cfg-options cannot be both specified, "
-            "--options is deprecated in favor of --cfg-options"
-        )
+            "--options is deprecated in favor of --cfg-options")
     if args.options:
         warnings.warn("--options is deprecated in favor of --cfg-options")
         args.cfg_options = args.options
@@ -163,9 +161,8 @@ def main():
         cfg.work_dir = args.work_dir
     elif cfg.get("work_dir", None) is None:
         # use config filename as default work_dir if cfg.work_dir is None
-        cfg.work_dir = osp.join(
-            "./work_dirs", osp.splitext(osp.basename(args.config))[0]
-        )
+        cfg.work_dir = osp.join("./work_dirs",
+                                osp.splitext(osp.basename(args.config))[0])
     if args.resume_from is not None:
         cfg.resume_from = args.resume_from
     if args.gpu_ids is not None:
@@ -188,10 +185,8 @@ def main():
         comm = MPI.COMM_WORLD
         mpi_local_rank = comm.Get_rank()
         mpi_world_size = comm.Get_size()
-        print(
-            "MPI local_rank=%d, world_size=%d"
-            % (mpi_local_rank, mpi_world_size)
-        )
+        print("MPI local_rank=%d, world_size=%d" %
+              (mpi_local_rank, mpi_world_size))
 
         # num_gpus = torch.cuda.device_count()
         device_ids_on_machines = list(range(args.gpus_per_machine))
@@ -211,9 +206,9 @@ def main():
         print("cfg.gpu_ids:", cfg.gpu_ids)
     else:
         distributed = True
-        init_dist(
-            args.launcher, timeout=timedelta(seconds=3600), **cfg.dist_params
-        )
+        init_dist(args.launcher,
+                  timeout=timedelta(seconds=3600),
+                  **cfg.dist_params)
         # re-set gpu_ids with distributed training mode
         _, world_size = get_dist_info()
         cfg.gpu_ids = range(world_size)
@@ -228,9 +223,7 @@ def main():
     # specify logger name, if we still use 'mmdet', the output info will be
     # filtered and won't be saved in the log_file
     # TODO: ugly workaround to judge whether we are training det or seg model
-    logger = get_root_logger(
-        log_file=log_file, log_level=cfg.log_level
-    )
+    logger = get_root_logger(log_file=log_file, log_level=cfg.log_level)
 
     # init the meta dict to record some important information such as
     # environment info and seed, which will be logged
@@ -239,9 +232,7 @@ def main():
     env_info_dict = collect_env()
     env_info = "\n".join([(f"{k}: {v}") for k, v in env_info_dict.items()])
     dash_line = "-" * 60 + "\n"
-    logger.info(
-        "Environment info:\n" + dash_line + env_info + "\n" + dash_line
-    )
+    logger.info("Environment info:\n" + dash_line + env_info + "\n" + dash_line)
     meta["env_info"] = env_info
     meta["config"] = cfg.pretty_text
 
@@ -251,18 +242,16 @@ def main():
 
     # set random seeds
     if args.seed is not None:
-        logger.info(
-            f"Set random seed to {args.seed}, "
-            f"deterministic: {args.deterministic}"
-        )
+        logger.info(f"Set random seed to {args.seed}, "
+                    f"deterministic: {args.deterministic}")
         set_random_seed(args.seed, deterministic=args.deterministic)
     cfg.seed = args.seed
     meta["seed"] = args.seed
     meta["exp_name"] = osp.basename(args.config)
 
-    model = build_detector(
-        cfg.model, train_cfg=cfg.get("train_cfg"), test_cfg=cfg.get("test_cfg")
-    )
+    model = build_detector(cfg.model,
+                           train_cfg=cfg.get("train_cfg"),
+                           test_cfg=cfg.get("test_cfg"))
     model.init_weights()
     logger.info(f"Model:\n{model}")
 
@@ -316,6 +305,5 @@ def main():
 
 if __name__ == "__main__":
     torch.multiprocessing.set_start_method(
-        "fork"
-    )  # use fork workers_per_gpu can be > 1
+        "fork")  # use fork workers_per_gpu can be > 1
     main()

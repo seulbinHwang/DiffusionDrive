@@ -27,8 +27,7 @@ from projects.mmdet3d_plugin.apis.test import custom_multi_gpu_test
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="MMDet test (and eval) a model"
-    )
+        description="MMDet test (and eval) a model")
     parser.add_argument("config", help="test config file path")
     parser.add_argument("checkpoint", help="checkpoint file")
     parser.add_argument("--out", help="output result file in pickle format")
@@ -53,9 +52,8 @@ def parse_args():
         ' "segm", "proposal" for COCO, and "mAP", "recall" for PASCAL VOC',
     )
     parser.add_argument("--show", action="store_true", help="show results")
-    parser.add_argument(
-        "--show-dir", help="directory where results will be saved"
-    )
+    parser.add_argument("--show-dir",
+                        help="directory where results will be saved")
     parser.add_argument(
         "--gpu-collect",
         action="store_true",
@@ -114,8 +112,7 @@ def parse_args():
     if args.options and args.eval_options:
         raise ValueError(
             "--options and --eval-options cannot be both specified, "
-            "--options is deprecated in favor of --eval-options"
-        )
+            "--options is deprecated in favor of --eval-options")
     if args.options:
         warnings.warn("--options is deprecated in favor of --eval-options")
         args.eval_options = args.options
@@ -126,12 +123,11 @@ def main():
     args = parse_args()
 
     assert (
-        args.out or args.eval or args.format_only or args.show or args.show_dir
-    ), (
-        "Please specify at least one operation (save/eval/format/show the "
-        'results / save the results) with the argument "--out", "--eval"'
-        ', "--format-only", "--show" or "--show-dir"'
-    )
+        args.out or args.eval or args.format_only or args.show or
+        args.show_dir), (
+            "Please specify at least one operation (save/eval/format/show the "
+            'results / save the results) with the argument "--out", "--eval"'
+            ', "--format-only", "--show" or "--show-dir"')
 
     if args.eval and args.format_only:
         raise ValueError("--eval and --format_only cannot be both specified")
@@ -160,8 +156,10 @@ def main():
 
                 for m in _module_dir[1:]:
                     _module_path = _module_path + "." + m
-                print("_module_path:", _module_path) # projects.mmdet3d_plugin
-                plg_lib = importlib.import_module(_module_path) # <module 'projects.mmdet3d_plugin' from '/home/user/PycharmProjects/DiffusionDrive/projects/mmdet3d_plugin/__init__.py'>
+                print("_module_path:", _module_path)  # projects.mmdet3d_plugin
+                plg_lib = importlib.import_module(
+                    _module_path
+                )  # <module 'projects.mmdet3d_plugin' from '/home/user/PycharmProjects/DiffusionDrive/projects/mmdet3d_plugin/__init__.py'>
             else:
                 # import dir is the dirpath for the config file
                 _module_dir = os.path.dirname(args.config)
@@ -185,14 +183,12 @@ def main():
         if samples_per_gpu > 1:
             # Replace 'ImageToTensor' to 'DefaultFormatBundle'
             cfg.data.test.pipeline = replace_ImageToTensor(
-                cfg.data.test.pipeline
-            )
+                cfg.data.test.pipeline)
     elif isinstance(cfg.data.test, list):
         for ds_cfg in cfg.data.test:
             ds_cfg.test_mode = True
         samples_per_gpu = max(
-            [ds_cfg.pop("samples_per_gpu", 1) for ds_cfg in cfg.data.test]
-        )
+            [ds_cfg.pop("samples_per_gpu", 1) for ds_cfg in cfg.data.test])
         if samples_per_gpu > 1:
             for ds_cfg in cfg.data.test:
                 ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
@@ -212,10 +208,10 @@ def main():
     if cfg.get('work_dir', None) is None:
         # use config filename as default work_dir if cfg.work_dir is None
         cfg.work_dir = osp.join('./work_dirs',
-                                osp.splitext(osp.basename(args.config))[0]) 
+                                osp.splitext(osp.basename(args.config))[0])
     mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
     cfg.data.test.work_dir = cfg.work_dir
-    print('work_dir: ',cfg.work_dir)
+    print('work_dir: ', cfg.work_dir)
 
     # build the dataloader
     dataset = build_dataset(cfg.data.test)
@@ -240,7 +236,8 @@ def main():
 
     # build the model and load checkpoint
     cfg.model.train_cfg = None
-    model = build_detector(cfg.model, test_cfg=cfg.get("test_cfg")) # test_cfg = None
+    model = build_detector(cfg.model,
+                           test_cfg=cfg.get("test_cfg"))  # test_cfg = None
     # model = build_model(cfg.model, test_cfg=cfg.get("test_cfg"))
     fp16_cfg = cfg.get("fp16", None)
     if fp16_cfg is not None:
@@ -273,9 +270,8 @@ def main():
             device_ids=[torch.cuda.current_device()],
             broadcast_buffers=False,
         )
-        outputs = custom_multi_gpu_test(
-            model, data_loader, args.tmpdir, args.gpu_collect
-        )
+        outputs = custom_multi_gpu_test(model, data_loader, args.tmpdir,
+                                        args.gpu_collect)
 
     rank, _ = get_dist_info()
     if rank == 0:
@@ -287,12 +283,12 @@ def main():
             eval_kwargs = cfg.get("evaluation", {}).copy()
             # hard-code way to remove EvalHook args
             for key in [
-                "interval",
-                "tmpdir",
-                "start",
-                "gpu_collect",
-                "save_best",
-                "rule",
+                    "interval",
+                    "tmpdir",
+                    "start",
+                    "gpu_collect",
+                    "save_best",
+                    "rule",
             ]:
                 eval_kwargs.pop(key, None)
             eval_kwargs.update(kwargs)
@@ -303,12 +299,12 @@ def main():
             eval_kwargs = cfg.get("evaluation", {}).copy()
             # hard-code way to remove EvalHook args
             for key in [
-                "interval",
-                "tmpdir",
-                "start",
-                "gpu_collect",
-                "save_best",
-                "rule",
+                    "interval",
+                    "tmpdir",
+                    "start",
+                    "gpu_collect",
+                    "save_best",
+                    "rule",
             ]:
                 eval_kwargs.pop(key, None)
             eval_kwargs.update(dict(metric=args.eval, **kwargs))
@@ -319,6 +315,5 @@ def main():
 
 if __name__ == "__main__":
     torch.multiprocessing.set_start_method(
-        "fork"
-    )  # use fork workers_per_gpu can be > 1
+        "fork")  # use fork workers_per_gpu can be > 1
     main()

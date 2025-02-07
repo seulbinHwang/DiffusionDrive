@@ -21,22 +21,22 @@ CLASSES = [
     "traffic_cone",
 ]
 
+
 def lidar2agent(trajs_offset, boxes):
     origin = np.zeros((trajs_offset.shape[0], 1, 2), dtype=np.float32)
     trajs_offset = np.concatenate([origin, trajs_offset], axis=1)
     trajs = trajs_offset.cumsum(axis=1)
-    yaws = - boxes[:, 6]
+    yaws = -boxes[:, 6]
     rot_sin = np.sin(yaws)
     rot_cos = np.cos(yaws)
-    rot_mat_T = np.stack(
-        [
-            np.stack([rot_cos, rot_sin]),
-            np.stack([-rot_sin, rot_cos]),
-        ]
-    )
+    rot_mat_T = np.stack([
+        np.stack([rot_cos, rot_sin]),
+        np.stack([-rot_sin, rot_cos]),
+    ])
     trajs_new = np.einsum('aij,jka->aik', trajs, rot_mat_T)
     trajs_new = trajs_new[:, 1:]
     return trajs_new
+
 
 K = 6
 DIS_THRESH = 55
@@ -62,7 +62,7 @@ for idx in tqdm(range(len(data_infos))):
             labels.append(-1)
     labels = np.array(labels)
     if len(boxes) == 0:
-        continue    
+        continue
     for i in range(len(CLASSES)):
         cls_mask = (labels == i)
         box_cls = boxes[cls_mask]
@@ -93,8 +93,9 @@ for i in range(len(CLASSES)):
     cluster = cluster.reshape(-1, 12, 2)
     clusters.append(cluster)
     for j in range(K):
-        plt.scatter(cluster[j, :, 0], cluster[j, :,1])
-    plt.savefig(f'vis/kmeans/motion_intention_{CLASSES[i]}_{K}', bbox_inches='tight')
+        plt.scatter(cluster[j, :, 0], cluster[j, :, 1])
+    plt.savefig(f'vis/kmeans/motion_intention_{CLASSES[i]}_{K}',
+                bbox_inches='tight')
     plt.close()
 
 clusters = np.stack(clusters, axis=0)
