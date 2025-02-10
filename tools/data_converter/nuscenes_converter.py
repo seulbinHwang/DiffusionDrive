@@ -86,14 +86,15 @@ def create_nuscenes_infos(
     Given the raw data, generate its related info file in pkl format.
 
     Args:
-        root_path (str): Path of the data root.
-        info_prefix (str): Prefix of the info file to be generated.
-        version (str): Version of the data.
+        root_path (str): Path of the data root. # './data/nuscenes'
+        out_path (str): Output path of the info file. # './data/infos/'
+        can_bus_root_path (str): Path of the can bus data. # './data/nuscenes'
+        info_prefix (str): Prefix of the info file to be generated. # 'nuscenes'
+        version (str): Version of the data. # 'v1.0-trainval'
             Default: 'v1.0-trainval'
-        max_sweeps (int): Max number of sweeps.
+        max_sweeps (int): Max number of sweeps. # 10
             Default: 10
     """
-    print(version, root_path)
     nusc = NuScenes(version=version, dataroot=root_path, verbose=True)
     nusc_map_extractor = NuscMapExtractor(root_path, roi_size)
     nusc_can_bus = NuScenesCanBus(dataroot=can_bus_root_path)
@@ -171,6 +172,7 @@ def get_available_scenes(nusc):
 
     Args:
         nusc (class): Dataset class in the nuScenes dataset.
+            nusc = NuScenes(version=version, dataroot=root_path, verbose=True)
 
     Returns:
         available_scenes (list[dict]): List of basic information for the
@@ -241,7 +243,7 @@ def _fill_trainval_infos(nusc,
         pose_record = nusc.get('ego_pose', sd_rec['ego_pose_token'])
         lidar_path, boxes, _ = nusc.get_sample_data(lidar_token)
         try:
-            mmcv.check_file_exist(lidar_path) # Error: File not found
+            mmcv.check_file_exist(lidar_path)  # Error: File not found
         except:
             # move to next sample if lidar_path is not valid
             continue
@@ -556,19 +558,21 @@ def nuscenes_data_prep(root_path,
     2D annotations and groundtruth database.
 
     Args:
-        root_path (str): Path of dataset root.
-        info_prefix (str): The prefix of info filenames.
-        version (str): Dataset version.
-        dataset_name (str): The dataset class name.
-        out_dir (str): Output directory of the groundtruth database info.
+        root_path (str): Path of dataset root. # './data/nuscenes'
+        can_bus_root_path (str): Path of nuScenes canbus. # './data/nuscenes'
+        info_prefix (str): The prefix of info filenames. # 'nuscenes'
+        version (str): Dataset version. # 'v1.0-trainval'
+        dataset_name (str): The dataset class name. # 'NuScenesDataset',
+        out_dir (str): Output directory of the groundtruth database info. # './data/infos/'
         max_sweeps (int): Number of input consecutive frames. Default: 10
     """
-    create_nuscenes_infos(root_path,
-                          out_dir,
-                          can_bus_root_path,
-                          info_prefix,
-                          version=version,
-                          max_sweeps=max_sweeps)
+    create_nuscenes_infos(
+        root_path,  # './data/nuscenes'
+        out_dir,  # './data/infos/'
+        can_bus_root_path,  # './data/nuscenes'
+        info_prefix,  # 'nuscenes'
+        version=version,  # 'v1.0-trainval'
+        max_sweeps=max_sweeps)  # 10
 
 
 parser = argparse.ArgumentParser(description='Data converter arg parser')
@@ -604,15 +608,25 @@ parser.add_argument('--workers',
 args = parser.parse_args()
 
 if __name__ == '__main__':
+    """
+python tools/data_converter/nuscenes_converter.py nuscenes \
+    --root-path ./data/nuscenes \
+    --canbus ./data/nuscenes \
+    --out-dir ./data/infos/ \
+    --extra-tag nuscenes \
+    --version v1.0
+
+    """
     if args.dataset == 'nuscenes' and args.version != 'v1.0-mini':
-        train_version = f'{args.version}-trainval'
-        nuscenes_data_prep(root_path=args.root_path,
-                           can_bus_root_path=args.canbus,
-                           info_prefix=args.extra_tag,
-                           version=train_version,
-                           dataset_name='NuScenesDataset',
-                           out_dir=args.out_dir,
-                           max_sweeps=args.max_sweeps)
+        train_version = f'{args.version}-trainval'  # 'v1.0-trainval'
+        nuscenes_data_prep(
+            root_path=args.root_path,  # './data/nuscenes'
+            can_bus_root_path=args.canbus,  # './data/nuscenes'
+            info_prefix=args.extra_tag,  # 'nuscenes'
+            version=train_version,  # 'v1.0-trainval'
+            dataset_name='NuScenesDataset',
+            out_dir=args.out_dir,  # './data/infos/'
+            max_sweeps=args.max_sweeps)  # 10
         test_version = f'{args.version}-test'
         nuscenes_data_prep(root_path=args.root_path,
                            can_bus_root_path=args.canbus,

@@ -48,19 +48,31 @@ class Visualizer:
         data = self.dataset.get_data_info(index)
         result = self.results[index]['img_bbox']
 
-        # cam_pred_path = self.cam_render.render(data, result, index)
+        cam_pred_path = self.cam_render.render(data, result, index)
         # import ipdb; ipdb.set_trace()
-        bev_gt_path, bev_pred_path = self.bev_render.render(data, result, index)
+        # TODO: Fix the error
+        # bev_gt_path, bev_pred_path = self.bev_render.render(data, result, index)
+        bev_gt_path = self.bev_render.render(data, result, index)
 
-        import ipdb
-        ipdb.set_trace()
-        self.combine(bev_gt_path, bev_pred_path, cam_pred_path, index)
+        # import ipdb
+        # ipdb.set_trace()
+        self.combine(bev_gt_path, cam_pred_path, index)
 
-    def combine(self, bev_gt_path, bev_pred_path, cam_pred_path, index):
+    def combine(self, bev_gt_path, cam_pred_path, index):
         bev_gt = cv2.imread(bev_gt_path)
-        bev_image = cv2.imread(bev_pred_path)
+        # bev_image = cv2.imread(bev_pred_path)
         cam_image = cv2.imread(cam_pred_path)
-        merge_image = cv2.hconcat([cam_image, bev_image, bev_gt])
+        # merge_image = cv2.hconcat([cam_image, bev_image, bev_gt])
+        # cam_image의 높이(행 수)를 기준으로 bev_gt를 리사이즈
+        desired_height = cam_image.shape[0]  # 10000 픽셀
+        scale_factor = desired_height / bev_gt.shape[0]  # 10000 / 16000 = 0.625
+        new_width = int(bev_gt.shape[1] * scale_factor)  # 8000 * 0.625 = 5000 픽셀
+
+        # bev_gt를 새로운 크기로 리사이즈
+        bev_gt_resized = cv2.resize(bev_gt, (new_width, desired_height))
+
+        # 두 이미지를 수평으로 합치기
+        merge_image = cv2.hconcat([cam_image, bev_gt_resized])
         save_path = os.path.join(self.combine_dir, str(index).zfill(4) + '.jpg')
         cv2.imwrite(save_path, merge_image)
 
@@ -87,7 +99,7 @@ class Visualizer:
 def parse_args():
     parser = argparse.ArgumentParser(
         description='Visualize groundtruth and results')
-    parser.add_argument('config', help='config file path')
+    parser.add_argument('config', help='config file path')  #
     parser.add_argument(
         '--result-path',
         default=None,
@@ -102,6 +114,11 @@ def parse_args():
 
 
 def main():
+    """
+python tools/visualization/visualize.py \
+	projects/configs/diffusiondrive_configs/diffusiondrive_small_stage2.py \
+	--result-path work_dirs/diffusiondrive_small_stage2/results.pkl
+    """
     args = parse_args()
     visualizer = Visualizer(args, plot_choices)
 

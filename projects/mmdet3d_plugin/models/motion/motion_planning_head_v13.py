@@ -876,7 +876,12 @@ class V13MotionPlanningHead(BaseModule):
         det_output['prediction'][-1].shape: torch.Size([1, 900, 11])
         """
         det_anchors = det_output["prediction"][-1]
-        det_confidence = det_classification.max(dim=-1).values
+        det_confidence = det_classification.max(dim=-1).values # (1, 900)
+        """
+        self.num_det: 50
+        instance_feature_selected: [1, 50, 256]
+        anchor_embed_selected: [1, 50, 256]
+        """
         _, (instance_feature_selected, anchor_embed_selected) = topk(
             det_confidence, self.num_det, instance_feature, anchor_embed
         )
@@ -894,6 +899,11 @@ class V13MotionPlanningHead(BaseModule):
         """
         map_anchors = map_output["prediction"][-1]
         map_confidence = map_classification.max(dim=-1).values
+        """
+        self.num_map: 10
+        map_instance_feature_selected: [1, 10, 256]
+        map_anchor_embed_selected: [1, 10, 256]
+        """
         _, (map_instance_feature_selected, map_anchor_embed_selected) = topk(
             map_confidence, self.num_map, map_instance_feature, map_anchor_embed
         )
@@ -902,19 +912,20 @@ class V13MotionPlanningHead(BaseModule):
         # import ipdb;ipdb.set_trace()
         bs, num_anchor, dim = instance_feature.shape
         device = instance_feature.device
+        print("------------start---------------------")
         (
             ego_feature, # [1, 1, 256]
             ego_anchor, # [1, 1, 11]
-            temp_instance_feature, # [1, 901, 1, 256]
-            temp_anchor, # [1, 901, 1, 11]
-            temp_mask, # [1, 901, 1]
+            temp_instance_feature, # [1, 901, 4, 256] # 자차와 주변 장애물들의 feature을 max_queue_length 만큼 저장한 것
+            temp_anchor, # [1, 901, 4, 11] # 자차와 주변 장애물들의 앵커 정보를 max_queue_length 만큼 저장한 것
+            temp_mask, # [1, 901, 4] # 자차와 주변 장애물들의 mask 정보를 max_queue_length 만큼 저장한 것
         ) = self.instance_queue.get(
             det_output,
             feature_maps,
             metas,
             bs,
             mask,
-            anchor_handler, # InstanceBank.anchor_handler(=Sparse3DKeyPointsGenerator) of det_head
+            anchor_handler, # InstanceBank.anchor_handler(=SparsePoint3DKeyPointsGenerator) of det_head
         )
         # ego_anchor_embed: [1, 1, 256] # ego_anchor: [1, 1, 11]
         ego_anchor_embed = anchor_encoder(ego_anchor)

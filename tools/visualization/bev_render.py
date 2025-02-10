@@ -104,9 +104,7 @@ class BEVRender:
         os.makedirs(self.gt_dir, exist_ok=True)
         os.makedirs(self.pred_dir, exist_ok=True)
         # self.vocabulary = np.load('/home/users/bencheng.liao/PlanWrapper/data/kmeans/kmeans_plan_4096.npy')
-        self.vocabulary = np.load(
-            '/home/users/bencheng.liao/PlanWrapper/data/kmeans/kmeans_plan_6.npy'
-        )
+        self.vocabulary = np.load('./data/kmeans/kmeans_plan_6.npy')
         self.diffusion_scheduler = DDIMScheduler(
             num_train_timesteps=1000,
             beta_schedule="scaled_linear",
@@ -142,8 +140,8 @@ class BEVRender:
         # self._render_legend()
         save_path_gt = os.path.join(self.gt_dir, str(index).zfill(4) + '.png')
         self.save_fig(save_path_gt)
-        import ipdb
-        ipdb.set_trace()
+        # import ipdb
+        # ipdb.set_trace()
 
         return save_path_gt
 

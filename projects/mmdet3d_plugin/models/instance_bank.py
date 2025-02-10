@@ -10,6 +10,16 @@ __all__ = ["InstanceBank"]
 
 
 def topk(confidence, k, *inputs):
+    """
+    confidence: (1, 900)
+    k: 50
+    instance_feature: (1, 900, 256)
+    anchor_embed: (1, 900, 256)
+
+    return
+        confidence: (1, 50)
+        outputs: [(1, 50, 256), (1, 50, 256)]
+    """
     bs, N = confidence.shape[:2]
     confidence, indices = torch.topk(confidence, k, dim=1)
     indices = (
