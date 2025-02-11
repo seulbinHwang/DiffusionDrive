@@ -256,7 +256,7 @@ class V13MotionPlanningHead(BaseModule):
         self.motion_anchor = nn.Parameter(
             torch.tensor(motion_anchor, dtype=torch.float32),
             requires_grad=False,
-        )
+        ) # (10, 6, 12, 2)
         self.motion_anchor_encoder = nn.Sequential(
             *linear_relu_ln(embed_dims, 1, 1),
             Linear(embed_dims, embed_dims),
@@ -418,6 +418,30 @@ class V13MotionPlanningHead(BaseModule):
             )
         )
     def normalize_ego_fut_trajs(self, gt_ego_fut_trajs):
+        """
+주어진 Ego 차량의 미래 궤적 좌표(보통 x, y 좌표)를 정규화하여
+    네트워크가 학습하기 적합한 범위로 스케일링
+1. **좌표 분리 및 스케일링**
+   - 입력으로 들어오는 `gt_ego_fut_trajs`의 첫 번째 차원은 x좌표, 두 번째 차원은 y좌표로 가정
+   - x좌표는 3으로 나누어 줌으로써 스케일을 축소하고, 이후 `clamp(-1, 1)`을 적용하여 [-1, 1] 범위 내로 제한
+   - y좌표는 먼저 0.5를 더한 뒤 8.1로 나눕니다.
+        이로써 y좌표를 [0, 1] 범위로 압축한 후, 다시 `clamp(0, 1)`을 적용합니다.
+        이후 y좌표에 대해 `*2 - 1` 연산을 수행하여 [-1, 1] 범위로 변환합니다.
+
+2. **목적**
+   - 이렇게 x와 y 좌표를 각각 [-1, 1] 범위로 정규화함으로써,
+        네트워크 내의 후속 모듈(예를 들어, diffusion 단계나 회귀(branch) 등)에서
+            입력으로 사용될 때 값의 범위가 일정해져 학습 안정성을 높이고,
+        모델이 다양한 스케일의 데이터를 효과적으로 처리할 수 있도록 돕습니다.
+   - 특히, 좌표값이 원래 단위나 범위가 서로 다를 수 있는데(예: x는 미터 단위로 3으로 나누고, y는 다른 스케일 적용),
+        이 함수를 통해 모든 좌표를 동일한 범위로 맞춰줌으로써
+        모델이 학습 과정에서 불필요한 scale 차이에 의한 영향을 받지 않도록 합니다.
+
+3. **출력 스펙**
+   - 최종 출력은 입력과 동일한 shape을 가지며,
+        각 좌표값이 [-1, 1] 범위 내로 정규화된 tensor가 반환
+
+        """
         # bs, ego_fut_ts, _ = gt_ego_fut_trajs.shape
         odo_info_fut_x = gt_ego_fut_trajs[..., 0:1]
         odo_info_fut_y = gt_ego_fut_trajs[..., 1:2]
@@ -432,6 +456,9 @@ class V13MotionPlanningHead(BaseModule):
         return odo_info_fut
 
     def denormalize_ego_fut_trajs(self, noisy_traj_points):
+        """denormalize_ego_fut_trajs 함수는 정규화된 Ego 미래 궤적 좌표를 원래의 스케일로 변환하여,
+        모델의 예측 결과를 실제 물리적 좌표 값으로 복원하는 전처리의 역과정
+        """
         # bs, ego_fut_ts, _ = noisy_traj_points.shape
         odo_info_fut_x = noisy_traj_points[..., 0:1]
         odo_info_fut_y = noisy_traj_points[..., 1:2]
@@ -950,8 +977,6 @@ class V13MotionPlanningHead(BaseModule):
         """ # bs, cmd_mode, modal_mode, ego_fut_ts, 2
         weight
             (3, 6, 6, 2) -> (1, 3, 6, 6, 2) -> (1, 3, 6, 6, 2)
-        file
-            (6, 6, 2) -? (1, 6, 6, 2) -> (bs, 1, 6, 6, 2)
         """
         plan_anchor = torch.tile(
             self.plan_anchor[None], (bs, 1, 1, 1, 1)
@@ -997,13 +1022,13 @@ class V13MotionPlanningHead(BaseModule):
         # traj_feature = self.pool_feature_from_traj(noisy_traj_points_cum,metas,feature_maps) # bs,1,2
         # import ipdb;ipdb.set_trace()
         # =========== cat instance and ego ===========
-        instance_feature_selected = torch.cat([instance_feature_selected, ego_feature], dim=1)
-        anchor_embed_selected = torch.cat([anchor_embed_selected, ego_anchor_embed], dim=1)
+        instance_feature_selected = torch.cat([instance_feature_selected, ego_feature], dim=1) # [B, 51, 256]
+        anchor_embed_selected = torch.cat([anchor_embed_selected, ego_anchor_embed], dim=1) # [B, 51, 256]
 
         instance_feature = torch.cat([instance_feature, ego_feature], dim=1)
         # print("anchor_embed.shape", anchor_embed.shape) # [1, 900, 256]
         # print("ego_anchor_embed.shape", ego_anchor_embed.shape) # [1, 1, 256]
-        anchor_embed = torch.cat([anchor_embed, ego_anchor_embed], dim=1)
+        anchor_embed = torch.cat([anchor_embed, ego_anchor_embed], dim=1) # [1, 901, 256]
         # print("anchor_embed.shape", anchor_embed.shape) # [1, 901, 256]
         # TODO, need to add traj anchor embed into temp_anchor_embed & temp_instance_feature
 
@@ -1034,9 +1059,9 @@ class V13MotionPlanningHead(BaseModule):
                 instance_feature = self.graph_model(
                     i,
                     instance_feature,
-                    instance_feature_selected,
-                    instance_feature_selected,
-                    query_pos=anchor_embed,
+                    instance_feature_selected, # [B, 51, 256]
+                    instance_feature_selected, # [B, 51, 256]
+                    query_pos=anchor_embed, # # [1, 901, 256]
                     key_pos=anchor_embed_selected,
                 )
             elif op == "norm" or op == "ffn":
@@ -1061,9 +1086,6 @@ class V13MotionPlanningHead(BaseModule):
                 weight
                     plan_mode_query -> (1, 1, 18, 256) # bs, 1, cmd_mode(=3)*modal_mode, 256
                     plan_query.shape: (1, 1, 18, 256) + (1, 1, 1, 256) -> (1, 1, 18, 256)
-                file
-                    plan_mode_query -> (1, 1, 6, 256) # bs, 1, cmd_mode(=1)*modal_mode, 256
-                    plan_query.shape: (1, 1, 6, 256) + (1, 1, 1, 256) -> (1, 1, 6, 256)
                 """
                 motion_query = motion_mode_query + (instance_feature + anchor_embed)[:, :num_anchor].unsqueeze(2)
                 plan_query = plan_mode_query + (instance_feature + anchor_embed)[:, num_anchor:].unsqueeze(2)
@@ -1080,11 +1102,11 @@ class V13MotionPlanningHead(BaseModule):
                     anchor_embed[:, num_anchor:],
                     metas,
                 )
-                motion_classification.append(motion_cls)
-                motion_prediction.append(motion_reg)
-                planning_classification.append(plan_cls)
-                planning_prediction.append(plan_reg)
-                planning_status.append(plan_status)
+                motion_classification.append(motion_cls) # [B, 900, 6]
+                motion_prediction.append(motion_reg) # [B, 900, fut_mode, fut_ts, 2] (예: [B, 900, 6, 12, 2])
+                planning_classification.append(plan_cls) # None
+                planning_prediction.append(plan_reg) # None
+                planning_status.append(plan_status) # [B, 1, 10]
         self.instance_queue.cache_motion(instance_feature[:, :num_anchor], det_output, metas)
         self.instance_queue.cache_planning(instance_feature[:, num_anchor:], plan_status)
 
@@ -1121,49 +1143,47 @@ class V13MotionPlanningHead(BaseModule):
             plan_query.shape: (1, 1, 18, 256) + (1, 1, 1, 256) -> (1, 1, 18, 256)  # bs, 1, cmd_mode(=3)*modal_mode, 256
             plan_nav_query -> (1, 18, 256) # (bs, cmd_mode*modal_mode, 256)
             plan_nav_query -> (1, 3, 6(=self.ego_fut_mode), 256) 
-        file
-            plan_query.shape: (1, 1, 6, 256) + (1, 1, 1, 256) -> (1, 1, 6, 256) # bs, 1, cmd_mode(=1)*modal_mode, 256
-            plan_nav_query -> (1, 6, 256) # (bs, cmd_mode*modal_mode, 256)
-            plan_nav_query -> 에러 발생
         """
         plan_nav_query = plan_query.squeeze(1)
         # ego_fut_mode: 6
+        plan_nav_query = plan_nav_query.view(bs,3,self.ego_fut_mode,-1)
+        bs_indices = torch.arange(bs, device=plan_query.device)
         """
         print("metas['gt_ego_fut_cmd'].shape:", metas['gt_ego_fut_cmd'].shape) # [1, 3]
         print("metas['gt_ego_fut_cmd'].argmax(dim=-1).shape:", metas['gt_ego_fut_cmd'].argmax(dim=-1).shape) # [1]
         """
-        plan_nav_query = plan_nav_query.view(bs,3,self.ego_fut_mode,-1)
-        bs_indices = torch.arange(bs, device=plan_query.device)
         cmd = metas['gt_ego_fut_cmd'].argmax(dim=-1)
         """
         cmd_plan_nav_query: ego future command gt를 이용하여 만든 선별된 query
         """
         cmd_plan_nav_query = plan_nav_query[bs_indices, cmd] # (b, self.ego_fut_mode, 256)
         # import ipdb;ipdb.set_trace()
-
-        cmd_plan_anchor = plan_anchor[bs_indices, cmd]
-        zeros_cat = torch.zeros(bs, 6, 1, 2, device=device)
-        cmd_plan_anchor = torch.cat([zeros_cat,cmd_plan_anchor], dim=2)
-        tgt_cmd_plan_anchor = cmd_plan_anchor[:,:,1:,:] - cmd_plan_anchor[:,:,:-1,:]
+        # plan_anchor: (1, 3, 6, 6, 2)
+        cmd_plan_anchor = plan_anchor[bs_indices, cmd] # (b, 6, 6, 2)
+        zeros_cat = torch.zeros(bs, 6, 1, 2, device=device) # (b, 6, 1, 2)
+        cmd_plan_anchor = torch.cat([zeros_cat,cmd_plan_anchor], dim=2) # (b, 6, 7, 2)
+        tgt_cmd_plan_anchor = cmd_plan_anchor[:,:,1:,:] - cmd_plan_anchor[:,:,:-1,:] # (b, 6, 6, 2)
 
         diff_planning_prediction = []
         diff_planning_classification = []
-        repeat_ego_anchor_embed = ego_anchor_embed.repeat(1,self.ego_fut_mode,1)
+        # ego_anchor_embed: (1, 1, 256)
+        repeat_ego_anchor_embed = ego_anchor_embed.repeat(1,self.ego_fut_mode,1) # (1, 6, 256)
 
-        img = self.normalize_ego_fut_trajs(tgt_cmd_plan_anchor)
-        noise = torch.randn(img.shape, device=device)
-        trunc_timesteps = torch.ones((bs,), device=device, dtype=torch.long) * 8
+        img = self.normalize_ego_fut_trajs(tgt_cmd_plan_anchor) # (b, 6, 6, 2)
+        noise = torch.randn(img.shape, device=device) # (b, 6, 6, 2)
+        trunc_timesteps = torch.ones((bs,), device=device, dtype=torch.long) * 8 # (b)
         img = self.diffusion_scheduler.add_noise(original_samples=img, noise=noise, timesteps=trunc_timesteps)
-        img = img.view(bs*self.ego_fut_mode, self.ego_fut_ts, 2)
+        img = img.view(bs*self.ego_fut_mode, self.ego_fut_ts, 2) # (b*6, 6, 2)
 
         # import ipdb;ipdb.set_trace()
         for k in roll_timesteps[:]:
-            x_boxes = torch.clamp(img, min=-1, max=1)
-            noisy_traj_points = self.denormalize_ego_fut_trajs(x_boxes)
-            traj_pos_embed = gen_sineembed_for_position(noisy_traj_points,hidden_dim=128)
-            traj_pos_embed = traj_pos_embed.flatten(-2)
-            traj_feature = self.plan_pos_encoder(traj_pos_embed)
-            traj_feature = traj_feature.view(bs,self.ego_fut_mode,-1)
+            print(f"-----------------step {k}-----------------")
+            x_boxes = torch.clamp(img, min=-1, max=1) # (b*6, 6, 2)
+            noisy_traj_points = self.denormalize_ego_fut_trajs(x_boxes) # (b*6, 6, 2)
+            traj_pos_embed = gen_sineembed_for_position(noisy_traj_points,hidden_dim=128) # (b*6, 6, 128)
+            traj_pos_embed = traj_pos_embed.flatten(-2) # (b*6, 6*128)
+            traj_feature = self.plan_pos_encoder(traj_pos_embed) # (b*6, 768)
+            traj_feature = traj_feature.view(bs,self.ego_fut_mode,-1) # (b, 6, 768)
             # noisy_traj_points_cum = noisy_traj_points.cumsum(dim=-2)
             # traj_feature = self.pool_feature_from_traj(noisy_traj_points_cum,metas,feature_maps)
             timesteps = k
@@ -1174,9 +1194,11 @@ class V13MotionPlanningHead(BaseModule):
                 timesteps = timesteps[None].to(img.device)
             # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
             timesteps = timesteps.expand(img.shape[0])
+            print("timesteps.shape", timesteps.shape)
             time_embed = self.time_mlp(timesteps)
+            print("time_embed.shape", time_embed.shape)
             # import ipdb;ipdb.set_trace()
-            diff_plan_reg = noisy_traj_points
+            diff_plan_reg = noisy_traj_points # (b*6, 6, 2)
             for i, op in enumerate(self.diff_operation_order):
                 if self.diff_layers[i] is None:
                     continue
@@ -1185,6 +1207,10 @@ class V13MotionPlanningHead(BaseModule):
                     if len(diff_plan_reg.shape) != 3:
                         # import ipdb;ipdb.set_trace()
                         diff_plan_reg = diff_plan_reg[:,:,-self.ego_fut_mode:,].flatten(0,2)
+                        """
+                        traj_feature: (b, 6, 768)
+                        diff_plan_reg: (b*6, 6, 2)
+                        """
                     traj_feature = self.diff_layers[i](traj_feature,diff_plan_reg,metas,feature_maps,modal_num=self.ego_fut_mode)
                     # import ipdb;ipdb.set_trace()
                 elif op == "self_attn":
@@ -1203,11 +1229,11 @@ class V13MotionPlanningHead(BaseModule):
                 elif op == "agent_cross_gnn":
                     traj_feature = self.diff_graph_model(
                         i,
-                        traj_feature,
-                        instance_feature_selected,
-                        instance_feature_selected,
-                        query_pos=repeat_ego_anchor_embed,
-                        key_pos=anchor_embed_selected,
+                        traj_feature, # (b, 6, 768)
+                        instance_feature_selected, # (b, 51, 256)
+                        instance_feature_selected, # (b, 51, 256)
+                        query_pos=repeat_ego_anchor_embed, # (1, 6, 256)
+                        key_pos=anchor_embed_selected, # # [B, 51, 256]
                     )
                 elif op == "map_cross_gnn":
                     traj_feature = self.diff_layers[i](
@@ -1219,9 +1245,9 @@ class V13MotionPlanningHead(BaseModule):
                     )
                 elif op == "anchor_cross_gnn":
                     traj_feature = self.diff_layers[i](
-                        traj_feature,
-                        key=cmd_plan_nav_query,
-                        value=cmd_plan_nav_query,
+                        traj_feature, # (b, 6, 768)
+                        key=cmd_plan_nav_query, # (b, self.ego_fut_mode, 256)
+                        value=cmd_plan_nav_query, # (b, self.ego_fut_mode, 256)
                     )
                 elif op == "norm" or op == "ffn":
                     traj_feature = self.diff_layers[i](traj_feature)
