@@ -263,8 +263,7 @@ class V13MotionPlanningHead(BaseModule):
         )
 
         # plan anchor init
-        # TODO: checkpoint에서는 (3, 6, 6, 2)로 되어있음. 근데 내 파일에서는 (6, 6, 2)로 되어있음.
-        plan_anchor = np.load(plan_anchor) # (6, 6, 2)
+        plan_anchor = np.load(plan_anchor) # (3, 6, 6, 2)
         self.plan_anchor = nn.Parameter(
             torch.tensor(plan_anchor, dtype=torch.float32),
             requires_grad=False,
@@ -889,7 +888,54 @@ class V13MotionPlanningHead(BaseModule):
         anchor_encoder, # SparseBox3DEncoder of det_head
         mask, # InstanceBank.mask of det_head
         anchor_handler, # InstanceBank.anchor_handler(=Sparse3DKeyPointsGenerator) of det_head
-    ):   
+    ):
+        ######### input ###############
+        """ det_output : Dict
+        instance_feature: (1, 900, 256)
+        anchor_embed: (1, 900, 256)
+
+        len(det_output['classification']): 6
+            det_output['classification'][-1].shape: torch.Size([1, 900, 10])
+        len(det_output['prediction']): 6
+            det_output['prediction'][-1].shape: torch.Size([1, 900, 11])
+        len(det_output['quality']): 6
+            det_output['quality'][-1].shape: torch.Size([1, 900, 2])
+        """
+        """ map_output: Dict
+        instance_feature: (1, 100, 256)
+        anchor_embed: (1, 100, 256)
+        len(map_output['classification']): 6
+        map_output['classification'][-1].shape: torch.Size([1, 100, 3])
+        len(map_output['prediction']): 6
+        map_output['prediction'][-1].shape: torch.Size([1, 100, 40])
+        """
+        """ feature_maps : List[Tensor]
+                [0]: (1, 89760, 256)
+                [1]: (6, 4, 2)
+                [2]: (6, 4)
+        """
+        ######### output ##############
+
+        """ motion_output : Dict
+        "classification": len = 1
+            (1, 900, fut_mode=6)
+        "prediction": len = 1
+            (1, 900, fut_mode=6, fut_ts=12, 2)
+        "period": (1, 900)
+        "anchor_queue": len = 4
+            (1, 900, 11)
+        """
+        """ planning_output : Dict
+        classification: len 1
+            (1, 1, cmd_mode(3)*modal_mode(6)=18)
+        prediction: len 1
+            (1, 1, cmd_mode(3)*modal_mode(6)=18, ego_fut_mode=6, 2)
+        status: len 1
+            (1, 1, 10)
+        anchor_queue: len 4
+            (1, 1, 11)
+        period: ( 1, 11)
+        """
         # =========== det/map feature/anchor ===========
         instance_feature = det_output["instance_feature"] # [1, 900, 256]
         anchor_embed = det_output["anchor_embed"] # [1, 900, 256]
@@ -939,7 +985,6 @@ class V13MotionPlanningHead(BaseModule):
         # import ipdb;ipdb.set_trace()
         bs, num_anchor, dim = instance_feature.shape
         device = instance_feature.device
-        print("------------start---------------------")
         (
             ego_feature, # [1, 1, 256]
             ego_anchor, # [1, 1, 11]
@@ -955,7 +1000,7 @@ class V13MotionPlanningHead(BaseModule):
             anchor_handler, # InstanceBank.anchor_handler(=SparsePoint3DKeyPointsGenerator) of det_head
         )
         # ego_anchor_embed: [1, 1, 256] # ego_anchor: [1, 1, 11]
-        ego_anchor_embed = anchor_encoder(ego_anchor)
+        ego_anchor_embed = anchor_encoder(ego_anchor) # (1, 1, 256)
         temp_anchor_embed = anchor_encoder(temp_anchor)
         temp_instance_feature = temp_instance_feature.flatten(0, 1)
         temp_anchor_embed = temp_anchor_embed.flatten(0, 1)
@@ -975,7 +1020,6 @@ class V13MotionPlanningHead(BaseModule):
         motion_anchor = self.get_motion_anchor(det_classification, det_anchors)
         # (6, 6, 2) -> (1, 6, 6, 2) -> (bs, 1, 6, 6, 2) # bs, cmd_mode, modal_mode, ego_fut_ts, 2
         """ # bs, cmd_mode, modal_mode, ego_fut_ts, 2
-        weight
             (3, 6, 6, 2) -> (1, 3, 6, 6, 2) -> (1, 3, 6, 6, 2)
         """
         plan_anchor = torch.tile(
@@ -990,16 +1034,11 @@ class V13MotionPlanningHead(BaseModule):
         motion_mode_query = self.motion_anchor_encoder(gen_sineembed_for_position(motion_anchor[..., -1, :]))
         # print("plan_anchor.shape", plan_anchor.shape) # [1, 1, 6, 6, 2]
         """ # bs, cmd_mode, modal_mode, ego_fut_ts, 2
-        weight
             (1, 3, 6, 6, 2) -> (1, 3, 6, 2) -(gen_sineembed_for_position)-> (1, 3, 6, 256)
-            plan_anchor_encoder -> (1, 3, 6, 256)
+            a = plan_anchor_encoder -> (1, 3, 6, 256)
             plan_mode_query -> (1, 1, 18, 256) # bs, 1, cmd_mode*modal_mode, 256
-        file
-            (1, 1, 6, 6, 2) -> (1, 1, 6, 2) -(gen_sineembed_for_position)-> (1, 1, 6, 256)
-            plan_anchor_encoder -> (1, 1, 6, 256)
-            plan_mode_query -> (1, 1, 6, 256) # bs, 1, cmd_mode*modal_mode, 256
         """
-        plan_pos = gen_sineembed_for_position(plan_anchor[..., -1, :])
+        plan_pos = gen_sineembed_for_position(plan_anchor[..., -1, :]) # (1, 3, 6, 256)
         a = self.plan_anchor_encoder(plan_pos) # (1, 1, 6, 256)
         plan_mode_query = a.flatten(1, 2).unsqueeze(1)
 
@@ -1083,7 +1122,6 @@ class V13MotionPlanningHead(BaseModule):
                 
                 """
                 """
-                weight
                     plan_mode_query -> (1, 1, 18, 256) # bs, 1, cmd_mode(=3)*modal_mode, 256
                     plan_query.shape: (1, 1, 18, 256) + (1, 1, 1, 256) -> (1, 1, 18, 256)
                 """
@@ -1177,7 +1215,6 @@ class V13MotionPlanningHead(BaseModule):
 
         # import ipdb;ipdb.set_trace()
         for k in roll_timesteps[:]:
-            print(f"-----------------step {k}-----------------")
             x_boxes = torch.clamp(img, min=-1, max=1) # (b*6, 6, 2)
             noisy_traj_points = self.denormalize_ego_fut_trajs(x_boxes) # (b*6, 6, 2)
             traj_pos_embed = gen_sineembed_for_position(noisy_traj_points,hidden_dim=128) # (b*6, 6, 128)
@@ -1194,9 +1231,7 @@ class V13MotionPlanningHead(BaseModule):
                 timesteps = timesteps[None].to(img.device)
             # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
             timesteps = timesteps.expand(img.shape[0])
-            print("timesteps.shape", timesteps.shape)
             time_embed = self.time_mlp(timesteps)
-            print("time_embed.shape", time_embed.shape)
             # import ipdb;ipdb.set_trace()
             diff_plan_reg = noisy_traj_points # (b*6, 6, 2)
             for i, op in enumerate(self.diff_operation_order):
@@ -1456,13 +1491,57 @@ class V13MotionPlanningHead(BaseModule):
         planning_output,
         data,
     ):
+        """ det_output : Dict
+        len(det_output['classification']): 6
+            det_output['classification'][-1].shape: torch.Size([1, 900, 10])
+        len(det_output['prediction']): 6
+            det_output['prediction'][-1].shape: torch.Size([1, 900, 11])
+        len(det_output['quality']): 6
+            det_output['quality'][-1].shape: torch.Size([1, 900, 2])
+        """
+        """ motion_output : Dict
+        "classification": len = 1
+            (1, 900, fut_mode=6)
+        "prediction": len = 1
+            (1, 900, fut_mode=6, fut_ts=12, 2)
+        "period": (1, 900)
+        "anchor_queue": len = 4
+            (1, 900, 11)
+        """
+        """ planning_output : Dict
+        classification: len 1
+            (1, 1, cmd_mode(3)*modal_mode(6)=18)
+        prediction: len 1
+            (1, 1, cmd_mode(3)*modal_mode(6)=18, ego_fut_mode=6, 2)
+        status: len 1
+            (1, 1, 10)
+        anchor_queue: len 4
+            (1, 1, 11)
+        period: ( 1, 11)
+        """
+        """ motion_result: List, len = 1 (아마 batch size 만큼 나올 것)
+        dict
+            trajs_3d: (300, fut_mode=6, fut_ts=12, 2)
+            trajs_score: (300, fut_mode=6)
+            anchor_queue: (300, max_length(=4), 10)
+            period: (300)
+        
+        """
         motion_result = self.motion_decoder.decode(
             det_output["classification"],
             det_output["prediction"],
-            det_output.get("instance_id"),
+            det_output.get("instance_id"), # [1, 900]
             det_output.get("quality"),
             motion_output,
         )
+        """ planning result: len = 1 (아마 batch size 만큼 나올 것)
+        dict
+            planning_score: (cmd_mode=3, modal_mode=6)
+            planning: (cmd_mode=3, modal_mode=6, ego_fut_mode=6, 2)
+            final_planning: (ego_fut_mode=6, 2)
+            ego_period: (1)
+            ego_anchor_queue: (1, max_length=4, 10)
+        """
         planning_result = self.planning_decoder.decode(
             det_output,
             motion_output,
