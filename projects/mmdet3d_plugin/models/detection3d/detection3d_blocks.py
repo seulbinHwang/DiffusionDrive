@@ -33,9 +33,9 @@ class SparseBox3DEncoder(BaseModule):
     ):
         super().__init__()
         assert mode in ["add", "cat"]
-        self.embed_dims = embed_dims
-        self.vel_dims = vel_dims
-        self.mode = mode
+        self.embed_dims = embed_dims # [128, 32, 32, 64]
+        self.vel_dims = vel_dims # 3
+        self.mode = mode # "cat"
 
         def embedding_layer(input_dims, output_dims):
             return nn.Sequential(
@@ -44,31 +44,32 @@ class SparseBox3DEncoder(BaseModule):
 
         if not isinstance(embed_dims, (list, tuple)):
             embed_dims = [embed_dims] * 5
-        self.pos_fc = embedding_layer(3, embed_dims[0])
-        self.size_fc = embedding_layer(3, embed_dims[1])
-        self.yaw_fc = embedding_layer(2, embed_dims[2])
+        self.pos_fc = embedding_layer(3, embed_dims[0]) # 128
+        self.size_fc = embedding_layer(3, embed_dims[1]) # 32
+        self.yaw_fc = embedding_layer(2, embed_dims[2]) # 32
         if vel_dims > 0:
-            self.vel_fc = embedding_layer(self.vel_dims, embed_dims[3])
-        if output_fc:
+            self.vel_fc = embedding_layer(self.vel_dims, embed_dims[3]) # 64
+        if output_fc: #False
             self.output_fc = embedding_layer(embed_dims[-1], embed_dims[-1])
         else:
             self.output_fc = None
 
     def forward(self, box_3d: torch.Tensor):
-        pos_feat = self.pos_fc(box_3d[..., [X, Y, Z]])
-        size_feat = self.size_fc(box_3d[..., [W, L, H]])
-        yaw_feat = self.yaw_fc(box_3d[..., [SIN_YAW, COS_YAW]])
+        # box_3d: (b, 1, 11)
+        pos_feat = self.pos_fc(box_3d[..., [X, Y, Z]]) # (b, 1, 128)
+        size_feat = self.size_fc(box_3d[..., [W, L, H]])# (b, 1, 32)
+        yaw_feat = self.yaw_fc(box_3d[..., [SIN_YAW, COS_YAW]]) # (b, 1, 32)
         if self.mode == "add":
             output = pos_feat + size_feat + yaw_feat
         elif self.mode == "cat":
-            output = torch.cat([pos_feat, size_feat, yaw_feat], dim=-1)
+            output = torch.cat([pos_feat, size_feat, yaw_feat], dim=-1) # (b, 1, 192)
 
         if self.vel_dims > 0:
-            vel_feat = self.vel_fc(box_3d[..., VX : VX + self.vel_dims])
+            vel_feat = self.vel_fc(box_3d[..., VX : VX + self.vel_dims]) # (b, 1, 64)
             if self.mode == "add":
                 output = output + vel_feat
             elif self.mode == "cat":
-                output = torch.cat([output, vel_feat], dim=-1)
+                output = torch.cat([output, vel_feat], dim=-1) # (b, 1, 256)
         if self.output_fc is not None:
             output = self.output_fc(output)
         return output

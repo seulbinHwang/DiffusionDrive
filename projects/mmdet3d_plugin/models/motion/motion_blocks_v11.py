@@ -62,6 +62,14 @@ class V11MotionPlanningRefinementModule(BaseModule):
         ego_anchor_embed,
         metas=None,
     ):
+        """
+        motion_query: (b, 900, 6, 256)
+                                        plan_query: (b, 1, 18, 256)
+        ego_feature: (b, 1, 256)
+        ego_anchor_embed: (b, 1, 256)
+                                        metas: None
+
+        """
         bs, num_anchor = motion_query.shape[:2]
         motion_cls = self.motion_cls_branch(motion_query).squeeze(-1)
         motion_reg = self.motion_reg_branch(motion_query).reshape(bs, num_anchor, self.fut_mode, self.fut_ts, 2)

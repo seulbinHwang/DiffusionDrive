@@ -287,6 +287,9 @@ class MultiheadFlashAttention(BaseModule):
 
 def gen_sineembed_for_position(pos_tensor, hidden_dim=256):
     """Mostly copy-paste from https://github.com/IDEA-opensource/DAB-DETR/
+
+    pos_tensor:: (b, 900, 6, 2)
+    pos: (b, 900, 6, 256)
     """
     half_hidden_dim = hidden_dim // 2
     scale = 2 * math.pi

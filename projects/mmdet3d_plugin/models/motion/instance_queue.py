@@ -78,7 +78,7 @@ class InstanceQueue(nn.Module):
             ego_feature: (B, 1, embed_dims)
                 전방 카메라를 8 * 22 개의 token(각 token=256차원) 으로 나눈 feature을 CNN으로 잘 조합하여, 하나의 최종 token 화 한 것
             ego_anchor: (B, 1, 11)
-                자차의 앵커 정보 (생성자에서 정의한 ego_anchor의 VY 값은 이전 프레임의 회전 정보(또는 방향 정보를 암시하는 SIN_YAW)를 반영)
+                자차의 앵커 정보 (생성자에서 정의한 ego_anchor 의 VY 값은 이전 프레임의 회전 정보(또는 방향 정보를 암시하는 SIN_YAW)를 반영)
                 11 = [X, Y, Z, W, L, H, SIN_YAW, COS_YAW, VX, VY, VZ]
             temp_instance_feature: (B, 901, max_queue_length, embed_dims)
                 자차와 주변 장애물들의 feature을 max_queue_length 만큼 저장한 것
