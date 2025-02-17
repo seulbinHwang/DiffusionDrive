@@ -89,8 +89,8 @@ class V1ModulationLayer(BaseModule):
     def __init__(
         self,
         embed_dims: int = 256,
-        if_global_cond: bool = False,
-        if_zeroinit_scale: bool = True,
+        if_global_cond: bool = False, # False
+        if_zeroinit_scale: bool = True, # False
     ):
         super(V1ModulationLayer, self).__init__()
         self.if_zeroinit_scale = if_zeroinit_scale
@@ -115,15 +115,23 @@ class V1ModulationLayer(BaseModule):
         time_embed,
         global_cond=None,
     ):
+        """ 이를 통해 모델은 시간에 따른 변화에 traj_feature 가 유연하게 대응할 수 있게 됩니다.
+        traj_feature: (b, 6, 256)
+        time_embed: (b, 6, 256)
+        global_cond = None
+        """
         if global_cond is not None:
             global_feature = torch.cat([global_cond, time_embed], axis=-1)
         else:
             global_feature = time_embed
         # import ipdb;ipdb.set_trace()
+        # scale_shift: (b, 6, 512)
         scale_shift = self.scale_shift_mlp(global_feature)
         # scale_shift = torch.repeat_interleave(scale_shift,repeats=bs,dim=0)
         # scale_shift = scale_shift.unsqueeze(1)
+        # scale, shift = (b, 6, 256), (b, 6, 256)
         scale, shift = scale_shift.chunk(2, dim=-1)
+        # traj_feature: (b, 6, 256)
         traj_feature = traj_feature * (1 + scale) + shift
         return traj_feature
 
@@ -1163,20 +1171,28 @@ class V4DiffMotionPlanningRefinementModule(BaseModule):
         self,
         traj_feature,
     ):
+        """
+        traj_feature: (b, 6, 256)
+
+        return
+            diff_plan_reg: (b, 1, 3*6, 6, 2)
+            diff_plan_cls: (b, 1, 3*6)
+        """
         bs = traj_feature.shape[0]
-
         # 6. get final prediction
-        traj_feature = traj_feature.view(bs, 1, self.ego_fut_mode, -1)
-        plan_cls = self.plan_cls_branch(traj_feature).squeeze(-1)
+        traj_feature = traj_feature.view(bs, 1, self.ego_fut_mode, -1) # (b, 1, 6, 256)
+        plan_cls = self.plan_cls_branch(traj_feature).squeeze(-1) # plan_cls: (b, 1, 6, 1) -> (b, 1, 6)
+        # plan_cls: (b, 1, 6) -> (b, 3, 6) -> (b, 1, 18)
         plan_cls = plan_cls.repeat(1, 3, 1).reshape(bs, 1, -1)
-        # import ipdb; ipdb.set_trace()
-        traj_delta = self.plan_reg_branch(traj_feature)
-        # reconstructed_traj = traj_delta.view(bs,self.ego_fut_ts,2)
-        plan_reg = traj_delta.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts,
-                                      2).repeat(1, 3, 1, 1, 1)
-        plan_reg = plan_reg.view(bs, 1, 3 * self.ego_fut_mode, self.ego_fut_ts,
-                                 2)
 
+        # import ipdb; ipdb.set_trace()
+        traj_delta = self.plan_reg_branch(traj_feature) # (b, 1, 6, 256) -> (b, 1, 6, 12)
+        # reconstructed_traj = traj_delta.view(bs,self.ego_fut_ts,2)
+        a = traj_delta.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts,
+                                      2) # a: (b, 1, 6, 6, 2)
+        plan_reg = a.repeat(1, 3, 1, 1, 1) # plan_reg: (b, 3, 6, 6, 2)
+        plan_reg = plan_reg.view(bs, 1, 3 * self.ego_fut_mode, self.ego_fut_ts,
+                                 2) # plan_reg: (b, 1, 18, 6, 2)
         return plan_reg, plan_cls
 
 

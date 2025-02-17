@@ -1267,7 +1267,6 @@ class V13MotionPlanningHead(BaseModule):
             traj_pos_embed = gen_sineembed_for_position(
                 noisy_traj_points, hidden_dim=128)  # (b*6, 6, 128)
             traj_pos_embed = traj_pos_embed.flatten(-2)  # (b*6, 6*128)
-            print("\n-----------------")
             # traj_feature: (b*6, 256)
             traj_feature = self.plan_pos_encoder(traj_pos_embed)  # (b*6, 768)
             # traj_feature: (b*6, 256) -> (b, 6, 256)
@@ -1303,12 +1302,16 @@ class V13MotionPlanningHead(BaseModule):
                 elif op == "traj_pooler":
                     # import ipdb;ipdb.set_trace()
                     if len(diff_plan_reg.shape) != 3:
-                        # import ipdb;ipdb.set_trace()
-                        diff_plan_reg = diff_plan_reg[
+                        """
+                        diff_plan_reg: (b, 1, 3*6, 6, 2)
+                        """
+                        a = diff_plan_reg[
                             :,
                             :,
                             -self.ego_fut_mode:,
-                        ].flatten(0, 2)
+                        ] # (b, 1, 6, 6, 2)
+                        # import ipdb;ipdb.set_trace()
+                        diff_plan_reg = a.flatten(0, 2) # (b*6, 6, 2)
                     """
                     traj_feature: (b, 6, 256)
                     diff_plan_reg: (b*6, 6, 2)
@@ -1330,7 +1333,7 @@ class V13MotionPlanningHead(BaseModule):
                     # traj_feature: (b, 6, 256)
                     traj_feature = self.diff_layers[i](
                         traj_feature,
-                        diff_plan_reg,
+                        diff_plan_reg, # (b*6, 6, 2)
                         metas,
                         feature_maps,
                         modal_num=self.ego_fut_mode)
@@ -1342,10 +1345,12 @@ class V13MotionPlanningHead(BaseModule):
                         traj_feature,
                     )
                 elif op == "modulation":
-                    # TODO
+                    """ 이를 통해 모델은 시간에 따른 변화에 traj_feature 가 유연하게 대응할 수 있게 됩니다."""
+                    # V1ModulationLayer
+                    # traj_feature: (b, 6, 256)
                     traj_feature = self.diff_layers[i](
-                        traj_feature,
-                        time_embed.view(bs, self.ego_fut_mode, -1),
+                        traj_feature, # (b, 6, 256)
+                        time_embed.view(bs, self.ego_fut_mode, -1), # [b*6, 256] -> [b, 6, 256]
                         global_cond=global_cond
                         if self.diff_layers[i].if_global_cond else None,
                     )
@@ -1377,6 +1382,7 @@ class V13MotionPlanningHead(BaseModule):
                     meta['gt_ego_fut_cmd']를 반영하여, (b, 6, 256) shape을 띠는 벡터
                     
                     """
+                    # traj_feature: (b, 6, 256)
                     traj_feature = self.diff_layers[i](
                         traj_feature,  # (b, 6, 256)
                         key=cmd_plan_nav_query,  # (b, self.ego_fut_mode, 256)
@@ -1386,30 +1392,46 @@ class V13MotionPlanningHead(BaseModule):
                     traj_feature = self.diff_layers[i](traj_feature)
                 elif op == "diff_refine":
                     # import ipdb;ipdb.set_trace()
+                    """
+            diff_plan_reg: (b, 1, 3*6, 6, 2)
+            diff_plan_cls: (b, 1, 3*6)
+                    """
                     diff_plan_reg, diff_plan_cls = self.diff_layers[i](
-                        traj_feature,)
+                        traj_feature,) # (b, 6, 256)
             # import ipdb;ipdb.set_trace()
             if len(diff_plan_reg.shape) != 3:
                 # import ipdb;ipdb.set_trace()
-                diff_plan_reg = diff_plan_reg[
+                a = diff_plan_reg[
                     :,
                     :,
                     -self.ego_fut_mode:,
-                ].flatten(0, 2)
-            x_start = diff_plan_reg
-            x_start = self.normalize_ego_fut_trajs(x_start)
+                ] # (b, 1, 6, 6, 2)
+                diff_plan_reg = a.flatten(0, 2) # (b*6, 6, 2)
+            x_start = diff_plan_reg #(b*6, 6, 2)
+            x_start = self.normalize_ego_fut_trajs(x_start) # (b*6, 6, 2)
             # inverse diffusion step (remove noise)
-            img = self.diffusion_scheduler.step(model_output=x_start,
-                                                timestep=k,
-                                                sample=img).prev_sample
+            """
+            diffusion network가 x_0를 출력 = x_start
+            
+            .prev_sample -> x_t-1 을 구하겠다는 뜻
+            """
+            img = self.diffusion_scheduler.step(model_output=x_start, # (b*6, 6, 2) # x_0
+                                                timestep=k, # k = 20, 0
+                                                sample=img # (b*6, 6, 2) # x_t
+                                                ).prev_sample
         # diffusion_output_x = img[:, :, 0:1]
         # diffusion_output_x = diffusion_output_x * 3
 
         # diffusion_output_y = img[:, :, 1:2]
         # diffusion_output_y = (diffusion_output_y + 1) / 2 * 8.1 - 0.5
         # plan_reg = torch.cat([diffusion_output_x, diffusion_output_y], dim=2)
-        diff_planning_prediction.append(diff_plan_reg.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts, 2)\
-                                        .repeat(1,3,1,1,1).view(bs,1,3*self.ego_fut_mode,self.ego_fut_ts,2))
+        # diff_plan_reg: (b*6, 6, 2)
+        # a: (b, 1, 6, 6, 2)
+        a = diff_plan_reg.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts, 2)
+        #
+        b = a.repeat(1,3,1,1,1)
+        c = b.view(bs,1,3*self.ego_fut_mode,self.ego_fut_ts,2)
+        diff_planning_prediction.append(c)
         diff_planning_classification.append(diff_plan_cls)
         planning_output["prediction"] = diff_planning_prediction
         planning_output["classification"] = diff_planning_classification
