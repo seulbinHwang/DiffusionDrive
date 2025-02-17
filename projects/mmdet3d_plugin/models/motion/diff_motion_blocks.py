@@ -161,17 +161,33 @@ class TrajSparsePoint3DKeyPointsGenerator(BaseModule):
         cur_timestamp=None,
         temp_timestamps=None,
     ):
+        """ 2D 점들에 고정된 높이(fixed height)와 지면 높이(ground height)를 더해 3D 좌표로 확장하는 것
+        anchor: plan_reg_cum: (b, modal_num(=6), ego_fut_ts(=6) * 2)
+            ego vehicle future trajectory (modal_num이 있고, 각 modal마다 ego_fut_ts * 2개의 2D point)
+
+        return
+            key_points: (b, modal_num(=6), ego_fut_ts(=6) * 5, 3)
+        """
         # import ipdb; ipdb.set_trace()
         # assert self.num_learnable_pts > 0, 'No learnable pts'
         bs, num_anchor, _ = anchor.shape
+        # key_points: (b, modal_num(=6), ego_fut_ts(=6), 2)
         key_points = anchor.view(bs, num_anchor, self.num_sample, -1)
+        # offset: (b, modal_num(=6), ego_fut_ts(=6), 5, 1, 2)
         offset = torch.zeros(
             [bs, num_anchor, self.num_sample,
              len(self.fix_height), 1, 2],
             device=anchor.device,
             dtype=anchor.dtype)
-
+        """
+        offset: (b, modal_num(=6), ego_fut_ts(=6), len(fix_height) = 5, 1, 2)
+        key_points[..., None, None, :] : (b, modal_num(=6), ego_fut_ts(=6), 1, 1, 2)
+        key_points -> (b, modal_num(=6), ego_fut_ts(=6), 5, 1, 2)
+        """
         key_points = offset + key_points[..., None, None, :]
+        """ 3차원 좌표로 확장: ground_height 추가
+        key_points -> (b, modal_num(=6), ego_fut_ts(=6), 5, 1, 3)
+        """
         key_points = torch.cat(
             [
                 key_points,
@@ -180,10 +196,28 @@ class TrajSparsePoint3DKeyPointsGenerator(BaseModule):
             ],
             dim=-1,
         )
+        """ fix_height: (len(fix_height)= 5,) 
+        height_offset: (len(fix_height)= 5, 2) # zeros
+        """
         fix_height = key_points.new_tensor(self.fix_height)
         height_offset = key_points.new_zeros([len(fix_height), 2])
+        """
+        height_offset -> (len(fix_height)= 5, 3)
+        0, 0, 0
+        0, 0, 0.5
+        0, 0, -0.5
+        0, 0, 1
+        0, 0, -1
+        """
         height_offset = torch.cat([height_offset, fix_height[:, None]], dim=-1)
+        """
+        height_offset[None, None, None, :, None] -> (1, 1, 1, 5, 1, 3)
+        key_points -> (b, modal_num(=6), ego_fut_ts(=6), 5, 1, 3)
+        """
         key_points = key_points + height_offset[None, None, None, :, None]
+        """
+        key_points -> (b, modal_num(=6), ego_fut_ts(=6), 5, 1, 3) -> (b, modal_num(=6), ego_fut_ts(=6) * 5, 3)
+        """
         key_points = key_points.flatten(2, 4)
         if (cur_timestamp is None or temp_timestamps is None or
                 T_cur2temp_list is None or len(temp_timestamps) == 0):
@@ -463,7 +497,7 @@ class V1TrajPooler(BaseModule):
 
     def __init__(self, embed_dims=256, ego_fut_ts=6):
         super(V1TrajPooler, self).__init__()
-        self.embed_dims = embed_dims
+        self.embed_dims = embed_dims  # 256
         self.ego_fut_ts = ego_fut_ts
         self.num_cams = 6
         self.num_levels = 4
@@ -471,8 +505,8 @@ class V1TrajPooler(BaseModule):
         self.num_pts = self.ego_fut_ts * 5
         self.attn_drop = 0.
         self.kps_generator = TrajSparsePoint3DKeyPointsGenerator(
-            embed_dims=embed_dims,
-            num_sample=ego_fut_ts,
+            embed_dims=embed_dims,  # 256
+            num_sample=ego_fut_ts,  # 6
             fix_height=(0, 0.5, -0.5, 1, -1),
             ground_height=-1.84023,
         )
@@ -497,6 +531,10 @@ class V1TrajPooler(BaseModule):
 
     @staticmethod
     def project_points(key_points, projection_mat, image_wh=None):
+        """생성된 3D 키포인트를, 메타 정보에 있는 카메라 프로젝션 행렬을 사용해 2D 이미지 평면에 투영합니다.
+
+
+        """
         bs, num_anchor, num_pts = key_points.shape[:3]
 
         pts_extend = torch.cat(
@@ -510,23 +548,35 @@ class V1TrajPooler(BaseModule):
         return points_2d
 
     def _get_weights(self, instance_feature, metas=None):
-        bs, num_anchor = instance_feature.shape[:2]
-        feature = instance_feature
-        if self.camera_encoder is not None:
-            camera_embed = self.camera_encoder(
-                metas["projection_mat"][:, :, :3].reshape(
-                    bs, self.num_cams, -1))
-            feature = feature[:, :, None] + camera_embed[:, None]
+        """
 
-        weights = (self.weights_fc(feature).reshape(
-            bs, num_anchor, -1, self.num_groups).softmax(dim=-2).reshape(
+        instance_feature = traj_feature: (b, 6, 256)
+        metas['projection_mat']: (b, 6, 4, 4)
+        """
+        bs, num_anchor = instance_feature.shape[:2]
+        feature = instance_feature # (b, 6, 256)
+        if self.camera_encoder is not None:
+            a = metas["projection_mat"][:, :, :3] # (b, 6, 3, 4)
+            b = a.reshape(bs, self.num_cams, -1) # (b, 6, 12)
+            # camera_embed: (b, 6, 256)
+            camera_embed = self.camera_encoder(b)
+            feature = feature[:, :, None] + camera_embed[:, None]
+        # feature: (b, 6, 6, 256)
+        weights = self.weights_fc(feature)
+        # weights: (b, 6, 6, 960) -> (b, 6, 720, 8)
+        weights = weights.reshape(
+            bs, num_anchor, -1, self.num_groups)
+        # weights: (b, 6, 720, 8) -> (b, 6, 720, 8)
+        weights = weights.softmax(dim=-2)
+        # weights: (b, 6, 720, 8) -> (b, 6, num_cams=6, num_levels=4, num_pts=30, num_groups=8)
+        weights = weights.reshape(
                 bs,
                 num_anchor,
-                self.num_cams,
-                self.num_levels,
-                self.num_pts,
+                self.num_cams, #6
+                self.num_levels, # 4
+                self.num_pts, # 30
                 self.num_groups,
-            ))
+            )
         if self.training and self.attn_drop > 0:
             mask = torch.rand(bs, num_anchor, self.num_cams, 1, self.num_pts, 1)
             mask = mask.to(device=weights.device, dtype=weights.dtype)
@@ -540,8 +590,9 @@ class V1TrajPooler(BaseModule):
                                feature_maps,
                                modal_num=1):
         """ projects/mmdet3d_plugin/models/motion/diff_motion_blocks.py
-        instance_feature = traj_feature: (b, 6, 768)
+        instance_feature = traj_feature: (b, 6, 256)
         noisy_traj_points = trajs_cum: (b*6, 6, 2)
+            - cum from diff_plan_reg
         feature_maps : List[Tensor]
                 [0]: (1, 89760, 256)
                 [1]: (6, 4, 2)
@@ -554,30 +605,68 @@ class V1TrajPooler(BaseModule):
         # plan_reg_cum: (b, modal_num(=6), ego_fut_ts(=6) * 2)
         plan_reg_cum = noisy_traj_points.view(bs, modal_num,
                                               self.ego_fut_ts * 2)
-        # bs, modal_num, self.ego_fut_ts*5, 3
+        """
+        plan_reg_cum: (b, modal_num(=6), ego_fut_ts(=6) * 2)
+        key_points: (b, modal_num(=6), ego_fut_ts(=6) * 5, 3)
+            - 각 점에 z 값을 추가했는데, 5개 높이에 대해 추가했다.
+        """
         key_points = self.kps_generator(plan_reg_cum)
-
+        # instance_feature = traj_feature: (b, 6, 256)
+        # weights: (b, num_anchor=6, num_cams=6, num_levels=4, num_pts=30, num_groups=8)
         weights = self._get_weights(instance_feature, metas)
-
-        points_2d = (self.project_points(
+        """
+        projection_mat: 카메라 프로젝션 행렬
+        image_wh: 이미지의 너비와 높이
+        """
+        projection_mat = metas["projection_mat"] # (b, 6, 4, 4)
+        image_wh = metas.get("image_wh") # (b, 6, 2)
+        # points_2d: (b, 6, 6, 30, 2)
+        """생성된 3D 키포인트를, 메타 정보에 있는 카메라 프로젝션 행렬을 사용해 2D 이미지 평면에 투영합니다."""
+        points_2d = self.project_points(
             key_points,
-            metas["projection_mat"],
-            metas.get("image_wh"),
-        ).permute(0, 2, 3, 1, 4).reshape(bs, modal_num, self.num_pts,
-                                         self.num_cams, 2))
-        weights = (weights.permute(0, 1, 4, 2, 3, 5).contiguous().reshape(
+            projection_mat,
+            image_wh,
+        )
+        # points_2d: (b, 6, 6, 30, 2) -> (b, num_cams=6, num_pts=30, num_anchor=6, 2)
+        points_2d =  points_2d.permute(0, 2, 3, 1, 4)
+        # points_2d: (b, 6, 30, 6, 2) -> (b, num_cams=6, num_pts=30, num_anchor=6, 2)
+        points_2d = points_2d.reshape(bs, modal_num, self.num_pts, self.num_cams, 2)
+        # weights: (b, num_anchor=6, num_cams=6, num_levels=4, num_pts=30, num_groups=8)
+        # -> [1, num_anchor=6, num_pts=30, num_cams=6, num_levels=4, num_groups=8]
+        weights = weights.permute(0, 1, 4, 2, 3, 5).contiguous()
+        # weights: [1, 6, 30, 6, 4, 8] -> [1, 6, 30, 6, 4, 8]
+        weights = weights.reshape(
             bs,
             modal_num,
             self.ego_fut_ts * 5,
             6,
             4,
             8,
-        ))
+        )
         # import ipdb;ipdb.set_trace()
+        """
+이 함수는, 주어진 sampling 위치(투영된 2D 점들)에서 각 scale의 feature를 샘플링하고,
+weight에 따라 가중치 합산을 수행해 aggregated feature를 생성합니다.
+
+        feature_maps : List[Tensor]
+                [0]: (1, 89760, 256)
+                [1]: (6, 4, 2)
+                [2]: (6, 4)
+        points_2d: (b, num_cams=6, num_pts=30, num_anchor=6, 2)
+        weights: [b, num_anchor=6, num_pts=30, num_cams=6, num_levels=4, num_groups=8]
+        
+        features: (b, 6, 256)
+        """
         features = DAF(*feature_maps, points_2d,
-                       weights).reshape(bs, modal_num, self.embed_dims)
-        output = self.proj_drop(self.output_proj(features))
+                       weights)
+        # features: (b, 6, 256) -> (b, 6, 256)
+        features = features.reshape(bs, modal_num, self.embed_dims)
+        # a: (b, 6, 256)
+        a = self.output_proj(features)
+        # output: (b, 6, 256)
+        output = self.proj_drop(a)
         if self.residual_mode == "add":
+            # output: (b, 6, 256)
             output = output + instance_feature
         elif self.residual_mode == "cat":
             output = torch.cat([output, instance_feature], dim=-1)
@@ -590,7 +679,13 @@ class V1TrajPooler(BaseModule):
                 feature_maps,
                 modal_num=1):
         """
-        instance_feature = traj_feature: (b, 6, 768)
+        목적
+            noise 가 낀 trajectory points를, 카메라 프로젝션을 통해 이미지 평면에 투영하고,
+            각 scale의 feature를 샘플링하고, weight에 따라 가중치 합산을 수행해 aggregated feature를 생성합니다.
+            생성된 feature를 원래 instance feature에 더해줍니다.
+
+
+        instance_feature = traj_feature: (b, 6, 256)
         trajs = diff_plan_reg: (b*6, 6, 2)
         feature_maps : List[Tensor]
                 [0]: (1, 89760, 256)
@@ -599,6 +694,7 @@ class V1TrajPooler(BaseModule):
         modal_num = self.ego_fut_mode = 6
         """
         trajs_cum = trajs.cumsum(dim=-2)  # (b*6, 6, 2)
+        # traj_feature: (b, 6, 256)
         traj_feature = self.pool_feature_from_traj(instance_feature,
                                                    trajs_cum,
                                                    metas,

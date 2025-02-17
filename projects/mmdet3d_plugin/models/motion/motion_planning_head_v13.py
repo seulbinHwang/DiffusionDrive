@@ -42,10 +42,10 @@ class TrajSparsePoint3DKeyPointsGenerator(BaseModule):
     def __init__(
             self,
             embed_dims: int = 256,
-            num_sample: int = 20,
+            num_sample: int = 20,   # ego_fut_ts = 6
             num_learnable_pts: int = 0,
-            fix_height: Tuple = (0,),
-            ground_height: int = 0,
+            fix_height: Tuple = (0,),  # (0, 0.5, -0.5, 1, -1)
+            ground_height: int = 0,  # -1.84023
     ):
         super(TrajSparsePoint3DKeyPointsGenerator, self).__init__()
         self.embed_dims = embed_dims
@@ -1267,9 +1267,12 @@ class V13MotionPlanningHead(BaseModule):
             traj_pos_embed = gen_sineembed_for_position(
                 noisy_traj_points, hidden_dim=128)  # (b*6, 6, 128)
             traj_pos_embed = traj_pos_embed.flatten(-2)  # (b*6, 6*128)
+            print("\n-----------------")
+            # traj_feature: (b*6, 256)
             traj_feature = self.plan_pos_encoder(traj_pos_embed)  # (b*6, 768)
+            # traj_feature: (b*6, 256) -> (b, 6, 256)
             traj_feature = traj_feature.view(bs, self.ego_fut_mode,
-                                             -1)  # (b, 6, 768)
+                                             -1)
             # noisy_traj_points_cum = noisy_traj_points.cumsum(dim=-2)
             # traj_feature = self.pool_feature_from_traj(noisy_traj_points_cum,metas,feature_maps)
             timesteps = k
@@ -1307,13 +1310,24 @@ class V13MotionPlanningHead(BaseModule):
                             -self.ego_fut_mode:,
                         ].flatten(0, 2)
                     """
-                    traj_feature: (b, 6, 768)
+                    traj_feature: (b, 6, 256)
                     diff_plan_reg: (b*6, 6, 2)
                     feature_maps : List[Tensor]
                             [0]: (1, 89760, 256)
+    – 여러 스케일(또는 레벨)과 카메라에서 추출된 feature map들을 공간적 위치(픽셀 또는 패치) 단위로 평탄화(flatten)하여 하나의 큰 텐서로 연결한 결과
+    – 여기서 89760는 모든 카메라와 모든 스케일의 픽셀(또는 패치) 수의 총합이고, 256는 각 위치에서의 feature 채널 수를 의미
+    – 즉, 이 텐서는 배치와 카메라 차원을 합쳐서 모든 spatial 위치의 특징들을 한 번에 처리할 수 있도록 만들어진 “열(feature column)” 형태의 표현        
                             [1]: (6, 4, 2)
+    – 각 카메라(6)와 각 스케일(레벨, 4)에서 원래의 공간적 크기(높이, 너비)를 나타내는 정보
+    – 여기서 6는 카메라의 수, 4는 각 카메라에서 사용한 스케일(또는 레벨)의 수, 2는 각각 (높이, 너비)를 의미
+    – 이 정보는 평탄화된 col_feats를 다시 원래의 spatial 구조로 복원할 때 기준으로 사용
                             [2]: (6, 4)
+    – 각 카메라별, 각 스케일별로 평탄화된 col_feats 내에서 해당 스케일의 feature들이 시작하는 인덱스를 나타냅
+    – (6, 4)에서 6는 카메라 수, 4는 각 카메라에서의 스케일 수를 의미하며, 
+        이 값들을 이용해 분할된 feature map 들을 다시 각 스케일 단위로 분리하거나 재구성할 수 있음
                     """
+                    # V1TrajPooler : 카메라 feature map과 traj_feature간 cross attention (Deformable Aggregation)
+                    # traj_feature: (b, 6, 256)
                     traj_feature = self.diff_layers[i](
                         traj_feature,
                         diff_plan_reg,
@@ -1328,7 +1342,7 @@ class V13MotionPlanningHead(BaseModule):
                         traj_feature,
                     )
                 elif op == "modulation":
-
+                    # TODO
                     traj_feature = self.diff_layers[i](
                         traj_feature,
                         time_embed.view(bs, self.ego_fut_mode, -1),
@@ -1336,9 +1350,11 @@ class V13MotionPlanningHead(BaseModule):
                         if self.diff_layers[i].if_global_cond else None,
                     )
                 elif op == "agent_cross_gnn":
+                    """각 궤적(modal)이, 주변 차량(자차 포함) 과 cross attention"""
+                    # traj_feature: (b, 6, 256)
                     traj_feature = self.diff_graph_model(
                         i,
-                        traj_feature,  # (b, 6, 768)
+                        traj_feature,  # (b, 6, 256)
                         instance_feature_selected,  # (b, 51, 256)
                         instance_feature_selected,  # (b, 51, 256)
                         query_pos=repeat_ego_anchor_embed,  # (1, 6, 256)
@@ -1353,8 +1369,16 @@ class V13MotionPlanningHead(BaseModule):
                         key_pos=map_anchor_embed_selected,
                     )
                 elif op == "anchor_cross_gnn":
+                    """cmd_plan_nav_query
+                    (clustering으로 추출한) plan_anchor (b, 3, 6, 256)에, 아래 2가지를 더한 값에,
+                        ego_instance_feature (b, 1, 1, 256)
+                        ego_anchor_embed (b, 1, 1, 256)
+                            참고로 이 두 개는 과거 "자차, 주변 차량들" + "map 정보"까지 반영된 정보임
+                    meta['gt_ego_fut_cmd']를 반영하여, (b, 6, 256) shape을 띠는 벡터
+                    
+                    """
                     traj_feature = self.diff_layers[i](
-                        traj_feature,  # (b, 6, 768)
+                        traj_feature,  # (b, 6, 256)
                         key=cmd_plan_nav_query,  # (b, self.ego_fut_mode, 256)
                         value=cmd_plan_nav_query,  # (b, self.ego_fut_mode, 256)
                     )
