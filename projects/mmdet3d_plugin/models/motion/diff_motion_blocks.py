@@ -38,8 +38,10 @@ except:
 from projects.mmdet3d_plugin.models.motion.modules.conditional_unet1d import ConditionalUnet1D, SinusoidalPosEmb
 import torch.nn.functional as F
 
+
 @PLUGIN_LAYERS.register_module()
 class ModulationLayer(BaseModule):
+
     def __init__(
         self,
         embed_dims: int = 256,
@@ -52,16 +54,16 @@ class ModulationLayer(BaseModule):
         self.embed_dims = embed_dims
         self.scale_shift_mlp = nn.Sequential(
             nn.Mish(),
-            nn.Linear(embed_dims, embed_dims*2) if not if_global_cond else nn.Linear(embed_dims*2, embed_dims*2),
+            nn.Linear(embed_dims, embed_dims * 2) if not if_global_cond else
+            nn.Linear(embed_dims * 2, embed_dims * 2),
             # Rearrange('batch t -> batch t 1'),
         )
-    
+
     def init_weight(self):
         # Zero initialize the last layer of scale_shift_mlp
         if self.if_zeroinit_scale:
             nn.init.constant_(self.scale_shift_mlp[-1].weight, 0)
             nn.init.constant_(self.scale_shift_mlp[-1].bias, 0)
-
 
     def forward(
         self,
@@ -70,20 +72,20 @@ class ModulationLayer(BaseModule):
         global_cond=None,
     ):
         if global_cond is not None:
-            global_feature = torch.cat([
-                    global_cond, time_embed
-                ], axis=-1)
+            global_feature = torch.cat([global_cond, time_embed], axis=-1)
         else:
             global_feature = time_embed
         scale_shift = self.scale_shift_mlp(global_feature)
         # scale_shift = torch.repeat_interleave(scale_shift,repeats=bs,dim=0)
         scale_shift = scale_shift.unsqueeze(1)
-        scale,shift = scale_shift.chunk(2,dim=-1)
+        scale, shift = scale_shift.chunk(2, dim=-1)
         traj_feature = traj_feature * (1 + scale) + shift
         return traj_feature
 
+
 @PLUGIN_LAYERS.register_module()
 class V1ModulationLayer(BaseModule):
+
     def __init__(
         self,
         embed_dims: int = 256,
@@ -96,16 +98,16 @@ class V1ModulationLayer(BaseModule):
         self.embed_dims = embed_dims
         self.scale_shift_mlp = nn.Sequential(
             nn.Mish(),
-            nn.Linear(embed_dims, embed_dims*2) if not if_global_cond else nn.Linear(embed_dims*2, embed_dims*2),
+            nn.Linear(embed_dims, embed_dims * 2) if not if_global_cond else
+            nn.Linear(embed_dims * 2, embed_dims * 2),
             # Rearrange('batch t -> batch t 1'),
         )
-    
+
     def init_weight(self):
         # Zero initialize the last layer of scale_shift_mlp
         if self.if_zeroinit_scale:
             nn.init.constant_(self.scale_shift_mlp[-1].weight, 0)
             nn.init.constant_(self.scale_shift_mlp[-1].bias, 0)
-
 
     def forward(
         self,
@@ -114,27 +116,27 @@ class V1ModulationLayer(BaseModule):
         global_cond=None,
     ):
         if global_cond is not None:
-            global_feature = torch.cat([
-                    global_cond, time_embed
-                ], axis=-1)
+            global_feature = torch.cat([global_cond, time_embed], axis=-1)
         else:
             global_feature = time_embed
         # import ipdb;ipdb.set_trace()
         scale_shift = self.scale_shift_mlp(global_feature)
         # scale_shift = torch.repeat_interleave(scale_shift,repeats=bs,dim=0)
         # scale_shift = scale_shift.unsqueeze(1)
-        scale,shift = scale_shift.chunk(2,dim=-1)
+        scale, shift = scale_shift.chunk(2, dim=-1)
         traj_feature = traj_feature * (1 + scale) + shift
         return traj_feature
 
-class TrajSparsePoint3DKeyPointsGenerator(BaseModule): 
+
+class TrajSparsePoint3DKeyPointsGenerator(BaseModule):
+
     def __init__(
-        self,
-        embed_dims: int = 256,
-        num_sample: int = 20,
-        num_learnable_pts: int = 0,
-        fix_height: Tuple = (0,),
-        ground_height: int = 0,
+            self,
+            embed_dims: int = 256,
+            num_sample: int = 20,
+            num_learnable_pts: int = 0,
+            fix_height: Tuple = (0,),
+            ground_height: int = 0,
     ):
         super(TrajSparsePoint3DKeyPointsGenerator, self).__init__()
         self.embed_dims = embed_dims
@@ -163,43 +165,41 @@ class TrajSparsePoint3DKeyPointsGenerator(BaseModule):
         # assert self.num_learnable_pts > 0, 'No learnable pts'
         bs, num_anchor, _ = anchor.shape
         key_points = anchor.view(bs, num_anchor, self.num_sample, -1)
-        offset = torch.zeros([bs, num_anchor, self.num_sample, len(self.fix_height), 1, 2],device=anchor.device, dtype=anchor.dtype)
-      
+        offset = torch.zeros(
+            [bs, num_anchor, self.num_sample,
+             len(self.fix_height), 1, 2],
+            device=anchor.device,
+            dtype=anchor.dtype)
+
         key_points = offset + key_points[..., None, None, :]
         key_points = torch.cat(
             [
                 key_points,
-                key_points.new_full(key_points.shape[:-1]+(1,), fill_value=self.ground_height),
+                key_points.new_full(key_points.shape[:-1] + (1,),
+                                    fill_value=self.ground_height),
             ],
             dim=-1,
         )
         fix_height = key_points.new_tensor(self.fix_height)
         height_offset = key_points.new_zeros([len(fix_height), 2])
-        height_offset = torch.cat([height_offset, fix_height[:,None]], dim=-1)
+        height_offset = torch.cat([height_offset, fix_height[:, None]], dim=-1)
         key_points = key_points + height_offset[None, None, None, :, None]
         key_points = key_points.flatten(2, 4)
-        if (
-            cur_timestamp is None
-            or temp_timestamps is None
-            or T_cur2temp_list is None
-            or len(temp_timestamps) == 0
-        ):
+        if (cur_timestamp is None or temp_timestamps is None or
+                T_cur2temp_list is None or len(temp_timestamps) == 0):
             return key_points
 
         temp_key_points_list = []
         for i, t_time in enumerate(temp_timestamps):
             temp_key_points = key_points
             T_cur2temp = T_cur2temp_list[i].to(dtype=key_points.dtype)
-            temp_key_points = (
-                T_cur2temp[:, None, None, :3]
-                @ torch.cat(
-                    [
-                        temp_key_points,
-                        torch.ones_like(temp_key_points[..., :1]),
-                    ],
-                    dim=-1,
-                ).unsqueeze(-1)
-            )
+            temp_key_points = (T_cur2temp[:, None, None, :3] @ torch.cat(
+                [
+                    temp_key_points,
+                    torch.ones_like(temp_key_points[..., :1]),
+                ],
+                dim=-1,
+            ).unsqueeze(-1))
             temp_key_points = temp_key_points.squeeze(-1)
             temp_key_points_list.append(temp_key_points)
         return key_points, temp_key_points_list
@@ -217,24 +217,24 @@ class TrajSparsePoint3DKeyPointsGenerator(BaseModule):
         for i in range(len(T_src2dst_list)):
             dst_anchor = anchor.clone()
             bs, num_anchor, _ = anchor.shape
-            dst_anchor = dst_anchor.reshape(bs, num_anchor, self.num_sample, -1).flatten(1, 2)
+            dst_anchor = dst_anchor.reshape(bs, num_anchor, self.num_sample,
+                                            -1).flatten(1, 2)
             T_src2dst = torch.unsqueeze(
-                T_src2dst_list[i].to(dtype=anchor.dtype), dim=1
-            )
+                T_src2dst_list[i].to(dtype=anchor.dtype), dim=1)
 
-            dst_anchor = (
-                torch.matmul(
-                    T_src2dst[..., :2, :2], dst_anchor[..., None]
-                ).squeeze(dim=-1)
-                + T_src2dst[..., :2, 3]
-            )
+            dst_anchor = (torch.matmul(T_src2dst[..., :2, :2],
+                                       dst_anchor[..., None]).squeeze(dim=-1) +
+                          T_src2dst[..., :2, 3])
 
-            dst_anchor = dst_anchor.reshape(bs, num_anchor, self.num_sample, -1).flatten(2, 3)
+            dst_anchor = dst_anchor.reshape(bs, num_anchor, self.num_sample,
+                                            -1).flatten(2, 3)
             dst_anchors.append(dst_anchor)
         return dst_anchors
 
+
 @PLUGIN_LAYERS.register_module()
 class DiffMotionPlanningRefinementModule(BaseModule):
+
     def __init__(
         self,
         embed_dims=256,
@@ -251,7 +251,6 @@ class DiffMotionPlanningRefinementModule(BaseModule):
         self.ego_fut_ts = ego_fut_ts
         self.ego_fut_mode = ego_fut_mode
 
-
         self.time_mlp = nn.Sequential(
             SinusoidalPosEmb(embed_dims),
             nn.Linear(embed_dims, embed_dims * 4),
@@ -260,7 +259,7 @@ class DiffMotionPlanningRefinementModule(BaseModule):
         )
         self.scale_shift_mlp = nn.Sequential(
             nn.Mish(),
-            nn.Linear(embed_dims, embed_dims*2),
+            nn.Linear(embed_dims, embed_dims * 2),
             # Rearrange('batch t -> batch t 1'),
         )
         # self.plan_cls_branch = nn.Sequential(
@@ -294,12 +293,12 @@ class DiffMotionPlanningRefinementModule(BaseModule):
         scale_shift = self.scale_shift_mlp(time_embed)
         # scale_shift = torch.repeat_interleave(scale_shift,repeats=bs,dim=0)
         scale_shift = scale_shift.unsqueeze(1)
-        scale,shift = scale_shift.chunk(2,dim=-1)
+        scale, shift = scale_shift.chunk(2, dim=-1)
         traj_feature = traj_feature * (1 + scale) + shift
 
         # 6. get final prediction
         traj_delta = self.plan_reg_branch(traj_feature)
-        reconstructed_traj = traj_delta.view(bs,self.ego_fut_ts,2)
+        reconstructed_traj = traj_delta.view(bs, self.ego_fut_ts, 2)
         plan_reg = reconstructed_traj
 
         return plan_reg
@@ -307,6 +306,7 @@ class DiffMotionPlanningRefinementModule(BaseModule):
 
 @PLUGIN_LAYERS.register_module()
 class V0P1DiffMotionPlanningRefinementModule(BaseModule):
+
     def __init__(
         self,
         embed_dims=256,
@@ -323,7 +323,6 @@ class V0P1DiffMotionPlanningRefinementModule(BaseModule):
         self.ego_fut_ts = ego_fut_ts
         self.ego_fut_mode = ego_fut_mode
 
-
         self.time_mlp = nn.Sequential(
             SinusoidalPosEmb(embed_dims),
             nn.Linear(embed_dims, embed_dims * 4),
@@ -332,7 +331,7 @@ class V0P1DiffMotionPlanningRefinementModule(BaseModule):
         )
         self.scale_shift_mlp = nn.Sequential(
             nn.Mish(),
-            nn.Linear(embed_dims, embed_dims*2, bias=True),
+            nn.Linear(embed_dims, embed_dims * 2, bias=True),
             # Rearrange('batch t -> batch t 1'),
         )
         # self.plan_cls_branch = nn.Sequential(
@@ -346,6 +345,7 @@ class V0P1DiffMotionPlanningRefinementModule(BaseModule):
             nn.ReLU(),
             nn.Linear(embed_dims, ego_fut_ts * 2),
         )
+
     def init_weight(self):
         # Zero initialize the last layer of scale_shift_mlp
         nn.init.constant_(self.scale_shift_mlp[-1].weight, 0)
@@ -367,12 +367,12 @@ class V0P1DiffMotionPlanningRefinementModule(BaseModule):
         scale_shift = self.scale_shift_mlp(time_embed)
         # scale_shift = torch.repeat_interleave(scale_shift,repeats=bs,dim=0)
         scale_shift = scale_shift.unsqueeze(1)
-        scale,shift = scale_shift.chunk(2,dim=-1)
+        scale, shift = scale_shift.chunk(2, dim=-1)
         traj_feature = traj_feature * (1 + scale) + shift
 
         # 6. get final prediction
         traj_delta = self.plan_reg_branch(traj_feature)
-        reconstructed_traj = traj_delta.view(bs,self.ego_fut_ts,2)
+        reconstructed_traj = traj_delta.view(bs, self.ego_fut_ts, 2)
         plan_reg = reconstructed_traj
 
         return plan_reg
@@ -380,91 +380,87 @@ class V0P1DiffMotionPlanningRefinementModule(BaseModule):
 
 @PLUGIN_LAYERS.register_module()
 class TrajPooler(BaseModule):
+
     def __init__(self, embed_dims=256, ego_fut_ts=6):
         super(TrajPooler, self).__init__()
         self.embed_dims = embed_dims
         self.ego_fut_ts = ego_fut_ts
-        self.kps_generator = TrajSparsePoint3DKeyPointsGenerator(embed_dims=embed_dims, 
-                                                                num_sample=ego_fut_ts,
-                                                                fix_height=(0, 0.5, -0.5, 1, -1),
-                                                        ground_height=-1.84023,)
+        self.kps_generator = TrajSparsePoint3DKeyPointsGenerator(
+            embed_dims=embed_dims,
+            num_sample=ego_fut_ts,
+            fix_height=(0, 0.5, -0.5, 1, -1),
+            ground_height=-1.84023,
+        )
+
     @staticmethod
     def project_points(key_points, projection_mat, image_wh=None):
         bs, num_anchor, num_pts = key_points.shape[:3]
 
         pts_extend = torch.cat(
-            [key_points, torch.ones_like(key_points[..., :1])], dim=-1
-        )
-        points_2d = torch.matmul(
-            projection_mat[:, :, None, None], pts_extend[:, None, ..., None]
-        ).squeeze(-1)
-        points_2d = points_2d[..., :2] / torch.clamp(
-            points_2d[..., 2:3], min=1e-5
-        )
+            [key_points, torch.ones_like(key_points[..., :1])], dim=-1)
+        points_2d = torch.matmul(projection_mat[:, :, None, None],
+                                 pts_extend[:, None, ..., None]).squeeze(-1)
+        points_2d = points_2d[..., :2] / torch.clamp(points_2d[..., 2:3],
+                                                     min=1e-5)
         if image_wh is not None:
             points_2d = points_2d / image_wh[:, :, None, None]
         return points_2d
-        
-    def pool_feature_from_traj(self, noisy_traj_points,metas,feature_maps):
+
+    def pool_feature_from_traj(self, noisy_traj_points, metas, feature_maps):
         modal_num = 1
         bs, _, _ = noisy_traj_points.shape
-        plan_reg_cum = noisy_traj_points.view(bs,modal_num,self.ego_fut_ts*2)
+        plan_reg_cum = noisy_traj_points.view(bs, modal_num,
+                                              self.ego_fut_ts * 2)
         # bs, modal_num, self.ego_fut_ts*5, 3
         key_points = self.kps_generator(plan_reg_cum)
-        one_weights = torch.ones([bs,modal_num,6*4*self.ego_fut_ts*5,8])
-        one_weights = one_weights.to(device=noisy_traj_points.device, dtype=noisy_traj_points.dtype)
+        one_weights = torch.ones(
+            [bs, modal_num, 6 * 4 * self.ego_fut_ts * 5, 8])
+        one_weights = one_weights.to(device=noisy_traj_points.device,
+                                     dtype=noisy_traj_points.dtype)
         weights = one_weights.softmax(dim=-2).reshape(
-                bs,
-                modal_num,
-                6,#self.num_cams,
-                4,#self.num_levels,
-                self.ego_fut_ts*5,#self.num_pts,
-                8,#self.num_groups,
-            )
+            bs,
+            modal_num,
+            6,  #self.num_cams,
+            4,  #self.num_levels,
+            self.ego_fut_ts * 5,  #self.num_pts,
+            8,  #self.num_groups,
+        )
         # attn_drop = 0.15
         attn_drop = 0.
         if self.training and attn_drop > 0:
-            mask = torch.rand(
-                bs, modal_num, 6, 1, self.ego_fut_ts*5, 1
-            )
+            mask = torch.rand(bs, modal_num, 6, 1, self.ego_fut_ts * 5, 1)
             mask = mask.to(device=weights.device, dtype=weights.dtype)
-            weights = ((mask >attn_drop) * weights) / (
-                1 - attn_drop
-            )
-        points_2d = (
-            self.project_points(
-                key_points,
-                metas["projection_mat"],
-                metas.get("image_wh"),
-            )
-            .permute(0, 2, 3, 1, 4)
-            .reshape(bs, modal_num, self.ego_fut_ts*5, 6, 2)
-        )
-        weights = (
-            weights.permute(0, 1, 4, 2, 3, 5)
-            .contiguous()
-            .reshape(
-                bs,
-                modal_num,
-                self.ego_fut_ts*5,
-                6,
-                4,
-                8,
-            )
-        )
+            weights = ((mask > attn_drop) * weights) / (1 - attn_drop)
+        points_2d = (self.project_points(
+            key_points,
+            metas["projection_mat"],
+            metas.get("image_wh"),
+        ).permute(0, 2, 3, 1, 4).reshape(bs, modal_num, self.ego_fut_ts * 5, 6,
+                                         2))
+        weights = (weights.permute(0, 1, 4, 2, 3, 5).contiguous().reshape(
+            bs,
+            modal_num,
+            self.ego_fut_ts * 5,
+            6,
+            4,
+            8,
+        ))
         # import ipdb;ipdb.set_trace()
-        features = DAF(*feature_maps, points_2d, weights).reshape(
-            bs,modal_num, self.embed_dims
-        )
+        features = DAF(*feature_maps, points_2d,
+                       weights).reshape(bs, modal_num, self.embed_dims)
         return features
 
     def forward(self, trajs, metas, feature_maps):
+
         trajs_cum = trajs.cumsum(dim=-2)
-        traj_feature = self.pool_feature_from_traj(trajs_cum,metas,feature_maps)
+        traj_feature = self.pool_feature_from_traj(trajs_cum, metas,
+                                                   feature_maps)
         return traj_feature
+
 
 @PLUGIN_LAYERS.register_module()
 class V1TrajPooler(BaseModule):
+
     def __init__(self, embed_dims=256, ego_fut_ts=6):
         super(V1TrajPooler, self).__init__()
         self.embed_dims = embed_dims
@@ -472,45 +468,43 @@ class V1TrajPooler(BaseModule):
         self.num_cams = 6
         self.num_levels = 4
         self.num_groups = 8
-        self.num_pts = self.ego_fut_ts*5
+        self.num_pts = self.ego_fut_ts * 5
         self.attn_drop = 0.
-        self.kps_generator = TrajSparsePoint3DKeyPointsGenerator(embed_dims=embed_dims, 
-                                                                num_sample=ego_fut_ts,
-                                                                fix_height=(0, 0.5, -0.5, 1, -1),
-                                                        ground_height=-1.84023,)
+        self.kps_generator = TrajSparsePoint3DKeyPointsGenerator(
+            embed_dims=embed_dims,
+            num_sample=ego_fut_ts,
+            fix_height=(0, 0.5, -0.5, 1, -1),
+            ground_height=-1.84023,
+        )
         self.proj_drop = nn.Dropout(0.0)
         self.residual_mode = "add"
-        use_camera_embed=True   
+        use_camera_embed = True
         if use_camera_embed:
             self.camera_encoder = Sequential(
-                *linear_relu_ln(embed_dims, 1, 2, 12)
-            )
+                *linear_relu_ln(embed_dims, 1, 2, 12))
             self.weights_fc = Linear(
-                embed_dims, self.num_groups * self.num_levels * self.num_pts
-            )
+                embed_dims, self.num_groups * self.num_levels * self.num_pts)
         else:
             self.camera_encoder = None
             self.weights_fc = Linear(
-                embed_dims, self.num_groups * self.num_cams * self.num_levels * self.num_pts
-            )
+                embed_dims, self.num_groups * self.num_cams * self.num_levels *
+                self.num_pts)
         self.output_proj = Linear(embed_dims, embed_dims)
 
     def init_weight(self):
         constant_init(self.weights_fc, val=0.0, bias=0.0)
         xavier_init(self.output_proj, distribution="uniform", bias=0.0)
+
     @staticmethod
     def project_points(key_points, projection_mat, image_wh=None):
         bs, num_anchor, num_pts = key_points.shape[:3]
 
         pts_extend = torch.cat(
-            [key_points, torch.ones_like(key_points[..., :1])], dim=-1
-        )
-        points_2d = torch.matmul(
-            projection_mat[:, :, None, None], pts_extend[:, None, ..., None]
-        ).squeeze(-1)
-        points_2d = points_2d[..., :2] / torch.clamp(
-            points_2d[..., 2:3], min=1e-5
-        )
+            [key_points, torch.ones_like(key_points[..., :1])], dim=-1)
+        points_2d = torch.matmul(projection_mat[:, :, None, None],
+                                 pts_extend[:, None, ..., None]).squeeze(-1)
+        points_2d = points_2d[..., :2] / torch.clamp(points_2d[..., 2:3],
+                                                     min=1e-5)
         if image_wh is not None:
             points_2d = points_2d / image_wh[:, :, None, None]
         return points_2d
@@ -521,69 +515,67 @@ class V1TrajPooler(BaseModule):
         if self.camera_encoder is not None:
             camera_embed = self.camera_encoder(
                 metas["projection_mat"][:, :, :3].reshape(
-                    bs, self.num_cams, -1
-                )
-            )
+                    bs, self.num_cams, -1))
             feature = feature[:, :, None] + camera_embed[:, None]
 
-        weights = (
-            self.weights_fc(feature)
-            .reshape(bs, num_anchor, -1, self.num_groups)
-            .softmax(dim=-2)
-            .reshape(
+        weights = (self.weights_fc(feature).reshape(
+            bs, num_anchor, -1, self.num_groups).softmax(dim=-2).reshape(
                 bs,
                 num_anchor,
                 self.num_cams,
                 self.num_levels,
                 self.num_pts,
                 self.num_groups,
-            )
-        )
+            ))
         if self.training and self.attn_drop > 0:
-            mask = torch.rand(
-                bs, num_anchor, self.num_cams, 1, self.num_pts, 1
-            )
+            mask = torch.rand(bs, num_anchor, self.num_cams, 1, self.num_pts, 1)
             mask = mask.to(device=weights.device, dtype=weights.dtype)
-            weights = ((mask > self.attn_drop) * weights) / (
-                1 - self.attn_drop
-            )
+            weights = ((mask > self.attn_drop) * weights) / (1 - self.attn_drop)
         return weights
 
-    def pool_feature_from_traj(self, instance_feature,noisy_traj_points,metas,feature_maps, modal_num=1):
+    def pool_feature_from_traj(self,
+                               instance_feature,
+                               noisy_traj_points,
+                               metas,
+                               feature_maps,
+                               modal_num=1):
+        """ projects/mmdet3d_plugin/models/motion/diff_motion_blocks.py
+        instance_feature = traj_feature: (b, 6, 768)
+        noisy_traj_points = trajs_cum: (b*6, 6, 2)
+        feature_maps : List[Tensor]
+                [0]: (1, 89760, 256)
+                [1]: (6, 4, 2)
+                [2]: (6, 4)
+        modal_num = self.ego_fut_mode = 6
+        """
         # modal_num = 1
         bs_modal, _, _ = noisy_traj_points.shape
         bs = bs_modal // modal_num
-        plan_reg_cum = noisy_traj_points.view(bs,modal_num,self.ego_fut_ts*2)
+        # plan_reg_cum: (b, modal_num(=6), ego_fut_ts(=6) * 2)
+        plan_reg_cum = noisy_traj_points.view(bs, modal_num,
+                                              self.ego_fut_ts * 2)
         # bs, modal_num, self.ego_fut_ts*5, 3
         key_points = self.kps_generator(plan_reg_cum)
 
         weights = self._get_weights(instance_feature, metas)
 
-        points_2d = (
-            self.project_points(
-                key_points,
-                metas["projection_mat"],
-                metas.get("image_wh"),
-            )
-            .permute(0, 2, 3, 1, 4)
-            .reshape(bs, modal_num, self.num_pts, self.num_cams, 2)
-        )
-        weights = (
-            weights.permute(0, 1, 4, 2, 3, 5)
-            .contiguous()
-            .reshape(
-                bs,
-                modal_num,
-                self.ego_fut_ts*5,
-                6,
-                4,
-                8,
-            )
-        )
+        points_2d = (self.project_points(
+            key_points,
+            metas["projection_mat"],
+            metas.get("image_wh"),
+        ).permute(0, 2, 3, 1, 4).reshape(bs, modal_num, self.num_pts,
+                                         self.num_cams, 2))
+        weights = (weights.permute(0, 1, 4, 2, 3, 5).contiguous().reshape(
+            bs,
+            modal_num,
+            self.ego_fut_ts * 5,
+            6,
+            4,
+            8,
+        ))
         # import ipdb;ipdb.set_trace()
-        features = DAF(*feature_maps, points_2d, weights).reshape(
-            bs,modal_num, self.embed_dims
-        )
+        features = DAF(*feature_maps, points_2d,
+                       weights).reshape(bs, modal_num, self.embed_dims)
         output = self.proj_drop(self.output_proj(features))
         if self.residual_mode == "add":
             output = output + instance_feature
@@ -591,159 +583,176 @@ class V1TrajPooler(BaseModule):
             output = torch.cat([output, instance_feature], dim=-1)
         return output
 
-    def forward(self,instance_feature, trajs, metas, feature_maps, modal_num=1):
-        trajs_cum = trajs.cumsum(dim=-2)
-        traj_feature = self.pool_feature_from_traj(instance_feature,trajs_cum,metas,feature_maps, modal_num=modal_num)
+    def forward(self,
+                instance_feature,
+                trajs,
+                metas,
+                feature_maps,
+                modal_num=1):
+        """
+        instance_feature = traj_feature: (b, 6, 768)
+        trajs = diff_plan_reg: (b*6, 6, 2)
+        feature_maps : List[Tensor]
+                [0]: (1, 89760, 256)
+                [1]: (6, 4, 2)
+                [2]: (6, 4)
+        modal_num = self.ego_fut_mode = 6
+        """
+        trajs_cum = trajs.cumsum(dim=-2)  # (b*6, 6, 2)
+        traj_feature = self.pool_feature_from_traj(instance_feature,
+                                                   trajs_cum,
+                                                   metas,
+                                                   feature_maps,
+                                                   modal_num=modal_num)
         return traj_feature
+
 
 @PLUGIN_LAYERS.register_module()
 class V2TrajPooler(BaseModule):
+
     def __init__(self, embed_dims=256, ego_fut_ts=6):
         super(V2TrajPooler, self).__init__()
         self.embed_dims = embed_dims
         self.ego_fut_ts = ego_fut_ts
-        self.kps_generator = TrajSparsePoint3DKeyPointsGenerator(embed_dims=embed_dims, 
-                                                                num_sample=ego_fut_ts,
-                                                                fix_height=(0, 0.5, -0.5, 1, -1),
-                                                        ground_height=-1.84023,)
+        self.kps_generator = TrajSparsePoint3DKeyPointsGenerator(
+            embed_dims=embed_dims,
+            num_sample=ego_fut_ts,
+            fix_height=(0, 0.5, -0.5, 1, -1),
+            ground_height=-1.84023,
+        )
+
     @staticmethod
     def project_points(key_points, projection_mat, image_wh=None):
         bs, num_anchor, num_pts = key_points.shape[:3]
 
         pts_extend = torch.cat(
-            [key_points, torch.ones_like(key_points[..., :1])], dim=-1
-        )
-        points_2d = torch.matmul(
-            projection_mat[:, :, None, None], pts_extend[:, None, ..., None]
-        ).squeeze(-1)
-        points_2d = points_2d[..., :2] / torch.clamp(
-            points_2d[..., 2:3], min=1e-5
-        )
+            [key_points, torch.ones_like(key_points[..., :1])], dim=-1)
+        points_2d = torch.matmul(projection_mat[:, :, None, None],
+                                 pts_extend[:, None, ..., None]).squeeze(-1)
+        points_2d = points_2d[..., :2] / torch.clamp(points_2d[..., 2:3],
+                                                     min=1e-5)
         if image_wh is not None:
             points_2d = points_2d / image_wh[:, :, None, None]
         return points_2d
-        
-    def pool_feature_from_traj(self, noisy_traj_points,metas,feature_maps, modal_num=1):
+
+    def pool_feature_from_traj(self,
+                               noisy_traj_points,
+                               metas,
+                               feature_maps,
+                               modal_num=1):
+
         # modal_num = 1
-        bs,modal_num, _, _ = noisy_traj_points.shape
+        bs, modal_num, _, _ = noisy_traj_points.shape
         # bs = bs_modal // modal_num
-        plan_reg_cum = noisy_traj_points.view(bs,modal_num,self.ego_fut_ts*2)
+        plan_reg_cum = noisy_traj_points.view(bs, modal_num,
+                                              self.ego_fut_ts * 2)
         # bs, modal_num, self.ego_fut_ts*5, 3
         key_points = self.kps_generator(plan_reg_cum)
-        one_weights = torch.ones([bs,modal_num,6*4*self.ego_fut_ts*5,8])
-        one_weights = one_weights.to(device=noisy_traj_points.device, dtype=noisy_traj_points.dtype)
+        one_weights = torch.ones(
+            [bs, modal_num, 6 * 4 * self.ego_fut_ts * 5, 8])
+        one_weights = one_weights.to(device=noisy_traj_points.device,
+                                     dtype=noisy_traj_points.dtype)
         weights = one_weights.softmax(dim=-2).reshape(
-                bs,
-                modal_num,
-                6,#self.num_cams,
-                4,#self.num_levels,
-                self.ego_fut_ts*5,#self.num_pts,
-                8,#self.num_groups,
-            )
+            bs,
+            modal_num,
+            6,  #self.num_cams,
+            4,  #self.num_levels,
+            self.ego_fut_ts * 5,  #self.num_pts,
+            8,  #self.num_groups,
+        )
         # attn_drop = 0.15
         attn_drop = 0.
         if self.training and attn_drop > 0:
-            mask = torch.rand(
-                bs, modal_num, 6, 1, self.ego_fut_ts*5, 1
-            )
+            mask = torch.rand(bs, modal_num, 6, 1, self.ego_fut_ts * 5, 1)
             mask = mask.to(device=weights.device, dtype=weights.dtype)
-            weights = ((mask >attn_drop) * weights) / (
-                1 - attn_drop
-            )
-        points_2d = (
-            self.project_points(
-                key_points,
-                metas["projection_mat"],
-                metas.get("image_wh"),
-            )
-            .permute(0, 2, 3, 1, 4)
-            .reshape(bs, modal_num, self.ego_fut_ts*5, 6, 2)
-        )
-        weights = (
-            weights.permute(0, 1, 4, 2, 3, 5)
-            .contiguous()
-            .reshape(
-                bs,
-                modal_num,
-                self.ego_fut_ts*5,
-                6,
-                4,
-                8,
-            )
-        )
+            weights = ((mask > attn_drop) * weights) / (1 - attn_drop)
+        points_2d = (self.project_points(
+            key_points,
+            metas["projection_mat"],
+            metas.get("image_wh"),
+        ).permute(0, 2, 3, 1, 4).reshape(bs, modal_num, self.ego_fut_ts * 5, 6,
+                                         2))
+        weights = (weights.permute(0, 1, 4, 2, 3, 5).contiguous().reshape(
+            bs,
+            modal_num,
+            self.ego_fut_ts * 5,
+            6,
+            4,
+            8,
+        ))
         # import ipdb;ipdb.set_trace()
-        features = DAF(*feature_maps, points_2d, weights).reshape(
-            bs,modal_num, self.embed_dims
-        )
+        features = DAF(*feature_maps, points_2d,
+                       weights).reshape(bs, modal_num, self.embed_dims)
         return features
 
     def forward(self, trajs, metas, feature_maps, modal_num=1):
         trajs_cum = trajs.cumsum(dim=-2)
-        traj_feature = self.pool_feature_from_traj(trajs_cum,metas,feature_maps, modal_num=modal_num)
+        traj_feature = self.pool_feature_from_traj(trajs_cum,
+                                                   metas,
+                                                   feature_maps,
+                                                   modal_num=modal_num)
         return traj_feature
 
 
 @PLUGIN_LAYERS.register_module()
 class V3TrajPooler(BaseModule):
-    def __init__(self, 
-                 embed_dims=256, 
-                 ego_fut_ts=6,
-                 use_camera_embed=True,
-                 proj_drop=0.0,
-                 num_cams=6,
-                 num_levels=4,
-                 num_groups=8,
-                 attn_drop=0.,
-                 residual_mode="add",
-                 ):
+
+    def __init__(
+        self,
+        embed_dims=256,
+        ego_fut_ts=6,
+        use_camera_embed=True,
+        proj_drop=0.0,
+        num_cams=6,
+        num_levels=4,
+        num_groups=8,
+        attn_drop=0.,
+        residual_mode="add",
+    ):
         super(V3TrajPooler, self).__init__()
         self.embed_dims = embed_dims
         self.ego_fut_ts = ego_fut_ts
         self.num_cams = num_cams
         self.num_levels = num_levels
         self.num_groups = num_groups
-        self.num_pts = self.ego_fut_ts*5
+        self.num_pts = self.ego_fut_ts * 5
         self.attn_drop = attn_drop
-        self.kps_generator = TrajSparsePoint3DKeyPointsGenerator(embed_dims=embed_dims, 
-                                                                num_sample=ego_fut_ts,
-                                                                fix_height=(0, 0.5, -0.5, 1, -1),
-                                                        ground_height=-1.84023,)
+        self.kps_generator = TrajSparsePoint3DKeyPointsGenerator(
+            embed_dims=embed_dims,
+            num_sample=ego_fut_ts,
+            fix_height=(0, 0.5, -0.5, 1, -1),
+            ground_height=-1.84023,
+        )
         self.proj_drop = nn.Dropout(proj_drop)
         self.residual_mode = residual_mode
         if use_camera_embed:
             self.camera_encoder = Sequential(
-                *linear_relu_ln(embed_dims, 1, 2, 12)
-            )
-            self.weights_fc = Linear(
-                embed_dims, num_groups * num_levels * self.num_pts
-            )
+                *linear_relu_ln(embed_dims, 1, 2, 12))
+            self.weights_fc = Linear(embed_dims,
+                                     num_groups * num_levels * self.num_pts)
         else:
             self.camera_encoder = None
             self.weights_fc = Linear(
-                embed_dims, num_groups * num_cams * num_levels * self.num_pts
-            )
+                embed_dims, num_groups * num_cams * num_levels * self.num_pts)
         self.output_proj = Linear(embed_dims, embed_dims)
 
     def init_weight(self):
         constant_init(self.weights_fc, val=0.0, bias=0.0)
         xavier_init(self.output_proj, distribution="uniform", bias=0.0)
+
     @staticmethod
     def project_points(key_points, projection_mat, image_wh=None):
         bs, num_anchor, num_pts = key_points.shape[:3]
 
         pts_extend = torch.cat(
-            [key_points, torch.ones_like(key_points[..., :1])], dim=-1
-        )
-        points_2d = torch.matmul(
-            projection_mat[:, :, None, None], pts_extend[:, None, ..., None]
-        ).squeeze(-1)
-        points_2d = points_2d[..., :2] / torch.clamp(
-            points_2d[..., 2:3], min=1e-5
-        )
+            [key_points, torch.ones_like(key_points[..., :1])], dim=-1)
+        points_2d = torch.matmul(projection_mat[:, :, None, None],
+                                 pts_extend[:, None, ..., None]).squeeze(-1)
+        points_2d = points_2d[..., :2] / torch.clamp(points_2d[..., 2:3],
+                                                     min=1e-5)
         if image_wh is not None:
             points_2d = points_2d / image_wh[:, :, None, None]
         return points_2d
-
 
     def _get_weights(self, instance_feature, metas=None):
         bs, num_anchor = instance_feature.shape[:2]
@@ -751,72 +760,59 @@ class V3TrajPooler(BaseModule):
         if self.camera_encoder is not None:
             camera_embed = self.camera_encoder(
                 metas["projection_mat"][:, :, :3].reshape(
-                    bs, self.num_cams, -1
-                )
-            )
+                    bs, self.num_cams, -1))
             feature = feature[:, :, None] + camera_embed[:, None]
 
-        weights = (
-            self.weights_fc(feature)
-            .reshape(bs, num_anchor, -1, self.num_groups)
-            .softmax(dim=-2)
-            .reshape(
+        weights = (self.weights_fc(feature).reshape(
+            bs, num_anchor, -1, self.num_groups).softmax(dim=-2).reshape(
                 bs,
                 num_anchor,
                 self.num_cams,
                 self.num_levels,
                 self.num_pts,
                 self.num_groups,
-            )
-        )
+            ))
         if self.training and self.attn_drop > 0:
-            mask = torch.rand(
-                bs, num_anchor, self.num_cams, 1, self.num_pts, 1
-            )
+            mask = torch.rand(bs, num_anchor, self.num_cams, 1, self.num_pts, 1)
             mask = mask.to(device=weights.device, dtype=weights.dtype)
-            weights = ((mask > self.attn_drop) * weights) / (
-                1 - self.attn_drop
-            )
+            weights = ((mask > self.attn_drop) * weights) / (1 - self.attn_drop)
         return weights
 
-    def pool_feature_from_traj(self, instance_feature, noisy_traj_points,metas,feature_maps, modal_num=1):
+    def pool_feature_from_traj(self,
+                               instance_feature,
+                               noisy_traj_points,
+                               metas,
+                               feature_maps,
+                               modal_num=1):
         # modal_num = 1
         # import ipdb;ipdb.set_trace()c
         bs, modal_num = instance_feature.shape[:2]
-        bs,modal_num, _, _ = noisy_traj_points.shape
+        bs, modal_num, _, _ = noisy_traj_points.shape
         # bs = bs_modal // modal_num
-        plan_reg_cum = noisy_traj_points.view(bs,modal_num,self.ego_fut_ts*2)
+        plan_reg_cum = noisy_traj_points.view(bs, modal_num,
+                                              self.ego_fut_ts * 2)
         # bs, modal_num, self.ego_fut_ts*5, 3
         key_points = self.kps_generator(plan_reg_cum)
 
         weights = self._get_weights(instance_feature, metas)
 
-
-        points_2d = (
-            self.project_points(
-                key_points,
-                metas["projection_mat"],
-                metas.get("image_wh"),
-            )
-            .permute(0, 2, 3, 1, 4)
-            .reshape(bs, modal_num, self.num_pts, self.num_cams, 2)
-        )
-        weights = (
-            weights.permute(0, 1, 4, 2, 3, 5)
-            .contiguous()
-            .reshape(
-                bs,
-                modal_num,
-                self.num_pts,
-                self.num_cams,
-                self.num_levels,
-                self.num_groups,
-            )
-        )
+        points_2d = (self.project_points(
+            key_points,
+            metas["projection_mat"],
+            metas.get("image_wh"),
+        ).permute(0, 2, 3, 1, 4).reshape(bs, modal_num, self.num_pts,
+                                         self.num_cams, 2))
+        weights = (weights.permute(0, 1, 4, 2, 3, 5).contiguous().reshape(
+            bs,
+            modal_num,
+            self.num_pts,
+            self.num_cams,
+            self.num_levels,
+            self.num_groups,
+        ))
         # import ipdb;ipdb.set_trace()
-        features = DAF(*feature_maps, points_2d, weights).reshape(
-            bs,modal_num, self.embed_dims
-        )
+        features = DAF(*feature_maps, points_2d,
+                       weights).reshape(bs, modal_num, self.embed_dims)
         output = self.proj_drop(self.output_proj(features))
         if self.residual_mode == "add":
             output = output + instance_feature
@@ -824,13 +820,24 @@ class V3TrajPooler(BaseModule):
             output = torch.cat([output, instance_feature], dim=-1)
         return output
 
-    def forward(self, instance_feature, trajs, metas, feature_maps, modal_num=1):
+    def forward(self,
+                instance_feature,
+                trajs,
+                metas,
+                feature_maps,
+                modal_num=1):
         trajs_cum = trajs.cumsum(dim=-2)
-        traj_feature = self.pool_feature_from_traj(instance_feature,trajs_cum,metas,feature_maps, modal_num=modal_num)
+        traj_feature = self.pool_feature_from_traj(instance_feature,
+                                                   trajs_cum,
+                                                   metas,
+                                                   feature_maps,
+                                                   modal_num=modal_num)
         return traj_feature
+
 
 @PLUGIN_LAYERS.register_module()
 class V1DiffMotionPlanningRefinementModule(BaseModule):
+
     def __init__(
         self,
         embed_dims=256,
@@ -847,7 +854,6 @@ class V1DiffMotionPlanningRefinementModule(BaseModule):
         self.ego_fut_ts = ego_fut_ts
         self.ego_fut_mode = ego_fut_mode
 
-
         self.time_mlp = nn.Sequential(
             SinusoidalPosEmb(embed_dims),
             nn.Linear(embed_dims, embed_dims * 4),
@@ -856,7 +862,7 @@ class V1DiffMotionPlanningRefinementModule(BaseModule):
         )
         self.scale_shift_mlp = nn.Sequential(
             nn.Mish(),
-            nn.Linear(embed_dims, embed_dims*2),
+            nn.Linear(embed_dims, embed_dims * 2),
             # Rearrange('batch t -> batch t 1'),
         )
         self.plan_cls_branch = nn.Sequential(
@@ -870,6 +876,7 @@ class V1DiffMotionPlanningRefinementModule(BaseModule):
             nn.ReLU(),
             nn.Linear(embed_dims, ego_fut_ts * 2),
         )
+
     def init_weight(self):
         bias_init = bias_init_with_prob(0.01)
         # nn.init.constant_(self.motion_cls_branch[-1].bias, bias_init)
@@ -882,30 +889,33 @@ class V1DiffMotionPlanningRefinementModule(BaseModule):
     ):
         # import ipdb; ipdb.set_trace()
         bs = traj_feature.shape[0]
-        
+
         # 5. embed timestep
         time_embed = self.time_mlp(timesteps)
         scale_shift = self.scale_shift_mlp(time_embed)
         # scale_shift = torch.repeat_interleave(scale_shift,repeats=bs,dim=0)
         scale_shift = scale_shift.unsqueeze(1)
-        scale,shift = scale_shift.chunk(2,dim=-1)
+        scale, shift = scale_shift.chunk(2, dim=-1)
         traj_feature = traj_feature * (1 + scale) + shift
 
         # 6. get final prediction
-        traj_feature = traj_feature.view(bs,1, self.ego_fut_mode,-1)
+        traj_feature = traj_feature.view(bs, 1, self.ego_fut_mode, -1)
         plan_cls = self.plan_cls_branch(traj_feature).squeeze(-1)
-        plan_cls = plan_cls.repeat(1,3,1).reshape(bs,1,-1)
+        plan_cls = plan_cls.repeat(1, 3, 1).reshape(bs, 1, -1)
         # import ipdb; ipdb.set_trace()
         traj_delta = self.plan_reg_branch(traj_feature)
         # reconstructed_traj = traj_delta.view(bs,self.ego_fut_ts,2)
-        plan_reg = traj_delta.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts, 2).repeat(1,3,1,1,1)
-        plan_reg = plan_reg.view(bs,1,3*self.ego_fut_mode,self.ego_fut_ts,2)
+        plan_reg = traj_delta.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts,
+                                      2).repeat(1, 3, 1, 1, 1)
+        plan_reg = plan_reg.view(bs, 1, 3 * self.ego_fut_mode, self.ego_fut_ts,
+                                 2)
 
         return plan_reg, plan_cls
 
 
 @PLUGIN_LAYERS.register_module()
 class V2DiffMotionPlanningRefinementModule(BaseModule):
+
     def __init__(
         self,
         embed_dims=256,
@@ -922,7 +932,6 @@ class V2DiffMotionPlanningRefinementModule(BaseModule):
         self.ego_fut_ts = ego_fut_ts
         self.ego_fut_mode = ego_fut_mode
 
-
         self.time_mlp = nn.Sequential(
             SinusoidalPosEmb(embed_dims),
             nn.Linear(embed_dims, embed_dims * 4),
@@ -931,7 +940,7 @@ class V2DiffMotionPlanningRefinementModule(BaseModule):
         )
         self.scale_shift_mlp = nn.Sequential(
             nn.Mish(),
-            nn.Linear(embed_dims*2, embed_dims*2),
+            nn.Linear(embed_dims * 2, embed_dims * 2),
             # Rearrange('batch t -> batch t 1'),
         )
         # self.plan_cls_branch = nn.Sequential(
@@ -956,18 +965,16 @@ class V2DiffMotionPlanningRefinementModule(BaseModule):
         # 5. embed timestep
         # import ipdb;ipdb.set_trace()
         time_embed = self.time_mlp(timesteps)
-        global_feature = torch.cat([
-                global_cond, time_embed
-            ], axis=-1)
+        global_feature = torch.cat([global_cond, time_embed], axis=-1)
         scale_shift = self.scale_shift_mlp(global_feature)
         # scale_shift = torch.repeat_interleave(scale_shift,repeats=bs,dim=0)
         scale_shift = scale_shift.unsqueeze(1)
-        scale,shift = scale_shift.chunk(2,dim=-1)
+        scale, shift = scale_shift.chunk(2, dim=-1)
         traj_feature = traj_feature * (1 + scale) + shift
 
         # 6. get final prediction
         traj_delta = self.plan_reg_branch(traj_feature)
-        reconstructed_traj = traj_delta.view(bs,self.ego_fut_ts,2)
+        reconstructed_traj = traj_delta.view(bs, self.ego_fut_ts, 2)
         plan_reg = reconstructed_traj
 
         return plan_reg
@@ -975,6 +982,7 @@ class V2DiffMotionPlanningRefinementModule(BaseModule):
 
 @PLUGIN_LAYERS.register_module()
 class V3DiffMotionPlanningRefinementModule(BaseModule):
+
     def __init__(
         self,
         embed_dims=256,
@@ -1001,7 +1009,7 @@ class V3DiffMotionPlanningRefinementModule(BaseModule):
         # import ipdb;ipdb.set_trace()
         nn.init.constant_(self.plan_reg_branch[-1].weight, 0)
         nn.init.constant_(self.plan_reg_branch[-1].bias, 0)
-        
+
     def forward(
         self,
         traj_feature,
@@ -1009,13 +1017,14 @@ class V3DiffMotionPlanningRefinementModule(BaseModule):
         bs = traj_feature.shape[0]
 
         traj_delta = self.plan_reg_branch(traj_feature)
-        plan_reg = traj_delta.view(bs,self.ego_fut_ts,2)
+        plan_reg = traj_delta.view(bs, self.ego_fut_ts, 2)
 
         return plan_reg
 
 
 @PLUGIN_LAYERS.register_module()
 class V4DiffMotionPlanningRefinementModule(BaseModule):
+
     def __init__(
         self,
         embed_dims=256,
@@ -1053,6 +1062,7 @@ class V4DiffMotionPlanningRefinementModule(BaseModule):
         bias_init = bias_init_with_prob(0.01)
         # nn.init.constant_(self.motion_cls_branch[-1].bias, bias_init)
         nn.init.constant_(self.plan_cls_branch[-1].bias, bias_init)
+
     def forward(
         self,
         traj_feature,
@@ -1060,19 +1070,23 @@ class V4DiffMotionPlanningRefinementModule(BaseModule):
         bs = traj_feature.shape[0]
 
         # 6. get final prediction
-        traj_feature = traj_feature.view(bs,1, self.ego_fut_mode,-1)
+        traj_feature = traj_feature.view(bs, 1, self.ego_fut_mode, -1)
         plan_cls = self.plan_cls_branch(traj_feature).squeeze(-1)
-        plan_cls = plan_cls.repeat(1,3,1).reshape(bs,1,-1)
+        plan_cls = plan_cls.repeat(1, 3, 1).reshape(bs, 1, -1)
         # import ipdb; ipdb.set_trace()
         traj_delta = self.plan_reg_branch(traj_feature)
         # reconstructed_traj = traj_delta.view(bs,self.ego_fut_ts,2)
-        plan_reg = traj_delta.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts, 2).repeat(1,3,1,1,1)
-        plan_reg = plan_reg.view(bs,1,3*self.ego_fut_mode,self.ego_fut_ts,2)
+        plan_reg = traj_delta.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts,
+                                      2).repeat(1, 3, 1, 1, 1)
+        plan_reg = plan_reg.view(bs, 1, 3 * self.ego_fut_mode, self.ego_fut_ts,
+                                 2)
 
         return plan_reg, plan_cls
 
+
 @PLUGIN_LAYERS.register_module()
 class V5DiffMotionPlanningRefinementModule(BaseModule):
+
     def __init__(
         self,
         embed_dims=256,
@@ -1110,6 +1124,7 @@ class V5DiffMotionPlanningRefinementModule(BaseModule):
         bias_init = bias_init_with_prob(0.01)
         # nn.init.constant_(self.motion_cls_branch[-1].bias, bias_init)
         nn.init.constant_(self.plan_cls_branch[-1].bias, bias_init)
+
     def forward(
         self,
         traj_feature,
@@ -1117,21 +1132,22 @@ class V5DiffMotionPlanningRefinementModule(BaseModule):
         bs = traj_feature.shape[0]
         # import ipdb;ipdb.set_trace()
         # 6. get final prediction
-        traj_feature = traj_feature.view(bs,self.ego_fut_mode,-1)
+        traj_feature = traj_feature.view(bs, self.ego_fut_mode, -1)
         plan_cls = self.plan_cls_branch(traj_feature).squeeze(-1)
-        plan_cls = plan_cls.reshape(bs,-1)
-        
+        plan_cls = plan_cls.reshape(bs, -1)
+
         traj_delta = self.plan_reg_branch(traj_feature)
-        
+
         # reconstructed_traj = traj_delta.view(bs,self.ego_fut_ts,2)
-        plan_reg = traj_delta.reshape(bs,self.ego_fut_mode, self.ego_fut_ts, 2)
+        plan_reg = traj_delta.reshape(bs, self.ego_fut_mode, self.ego_fut_ts, 2)
         # plan_reg = plan_reg.view(bs,1,3*self.ego_fut_mode,self.ego_fut_ts,2)
-        
+
         return plan_reg, plan_cls
 
 
 @PLUGIN_LAYERS.register_module()
 class V6DiffMotionPlanningRefinementModule(BaseModule):
+
     def __init__(
         self,
         embed_dims=256,
@@ -1169,6 +1185,7 @@ class V6DiffMotionPlanningRefinementModule(BaseModule):
         bias_init = bias_init_with_prob(0.01)
         # nn.init.constant_(self.motion_cls_branch[-1].bias, bias_init)
         nn.init.constant_(self.plan_cls_branch[-1].bias, bias_init)
+
     def forward(
         self,
         traj_feature,
@@ -1177,15 +1194,15 @@ class V6DiffMotionPlanningRefinementModule(BaseModule):
         bs = traj_feature.shape[0]
         # import ipdb;ipdb.set_trace()
         # 6. get final prediction
-        traj_feature = traj_feature.view(bs,self.ego_fut_mode,-1)
+        traj_feature = traj_feature.view(bs, self.ego_fut_mode, -1)
         plan_cls = self.plan_cls_branch(traj_feature).squeeze(-1)
-        plan_cls = plan_cls.reshape(bs,-1)
-        
+        plan_cls = plan_cls.reshape(bs, -1)
+
         traj_delta = self.plan_reg_branch(traj_feature)
-        
+
         # reconstructed_traj = traj_delta.view(bs,self.ego_fut_ts,2)
-        plan_reg = traj_delta.reshape(bs,self.ego_fut_mode, self.ego_fut_ts, 2)
+        plan_reg = traj_delta.reshape(bs, self.ego_fut_mode, self.ego_fut_ts, 2)
         pred_plan_reg = plan_reg + last_plan_reg
         # plan_reg = plan_reg.view(bs,1,3*self.ego_fut_mode,self.ego_fut_ts,2)
-        
+
         return plan_reg, plan_cls

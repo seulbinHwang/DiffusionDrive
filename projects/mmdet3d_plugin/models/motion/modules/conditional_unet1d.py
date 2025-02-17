@@ -6,6 +6,7 @@ import einops
 from einops.layers.torch import Rearrange
 import math
 
+
 class Conv1dBlock(nn.Module):
     '''
         Conv1d --> GroupNorm --> Mish
@@ -15,7 +16,10 @@ class Conv1dBlock(nn.Module):
         super().__init__()
 
         self.block = nn.Sequential(
-            nn.Conv1d(inp_channels, out_channels, kernel_size, padding=kernel_size // 2),
+            nn.Conv1d(inp_channels,
+                      out_channels,
+                      kernel_size,
+                      padding=kernel_size // 2),
             # Rearrange('batch channels horizon -> batch channels 1 horizon'),
             nn.GroupNorm(n_groups, out_channels),
             # Rearrange('batch channels 1 horizon -> batch channels horizon'),
@@ -25,7 +29,9 @@ class Conv1dBlock(nn.Module):
     def forward(self, x):
         return self.block(x)
 
+
 class Downsample1d(nn.Module):
+
     def __init__(self, dim):
         super().__init__()
         self.conv = nn.Conv1d(dim, dim, 3, 2, 1)
@@ -33,7 +39,9 @@ class Downsample1d(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
+
 class Upsample1d(nn.Module):
+
     def __init__(self, dim):
         super().__init__()
         self.conv = nn.ConvTranspose1d(dim, dim, 4, 2, 1)
@@ -41,7 +49,9 @@ class Upsample1d(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
+
 class SinusoidalPosEmb(nn.Module):
+
     def __init__(self, dim):
         super().__init__()
         self.dim = dim
@@ -55,19 +65,27 @@ class SinusoidalPosEmb(nn.Module):
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb
 
+
 class ConditionalResidualBlock1D(nn.Module):
-    def __init__(self, 
-            in_channels, 
-            out_channels, 
-            cond_dim,
-            kernel_size=3,
-            n_groups=8,
-            cond_predict_scale=False):
+
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 cond_dim,
+                 kernel_size=3,
+                 n_groups=8,
+                 cond_predict_scale=False):
         super().__init__()
 
         self.blocks = nn.ModuleList([
-            Conv1dBlock(in_channels, out_channels, kernel_size, n_groups=n_groups),
-            Conv1dBlock(out_channels, out_channels, kernel_size, n_groups=n_groups),
+            Conv1dBlock(in_channels,
+                        out_channels,
+                        kernel_size,
+                        n_groups=n_groups),
+            Conv1dBlock(out_channels,
+                        out_channels,
+                        kernel_size,
+                        n_groups=n_groups),
         ])
 
         # FiLM modulation https://arxiv.org/abs/1709.07871
@@ -98,10 +116,9 @@ class ConditionalResidualBlock1D(nn.Module):
         out = self.blocks[0](x)
         embed = self.cond_encoder(cond)
         if self.cond_predict_scale:
-            embed = embed.reshape(
-                embed.shape[0], 2, self.out_channels, 1)
-            scale = embed[:,0,...]
-            bias = embed[:,1,...]
+            embed = embed.reshape(embed.shape[0], 2, self.out_channels, 1)
+            scale = embed[:, 0, ...]
+            bias = embed[:, 1, ...]
             out = scale * out + bias
         else:
             out = out + embed
@@ -111,16 +128,16 @@ class ConditionalResidualBlock1D(nn.Module):
 
 
 class ConditionalUnet1D(nn.Module):
-    def __init__(self, 
-        input_dim,
-        local_cond_dim=None,
-        global_cond_dim=None,
-        diffusion_step_embed_dim=256,
-        down_dims=[256,512,1024],
-        kernel_size=3,
-        n_groups=8,
-        cond_predict_scale=False
-        ):
+
+    def __init__(self,
+                 input_dim,
+                 local_cond_dim=None,
+                 global_cond_dim=None,
+                 diffusion_step_embed_dim=256,
+                 down_dims=[256, 512, 1024],
+                 kernel_size=3,
+                 n_groups=8,
+                 cond_predict_scale=False):
         super().__init__()
         all_dims = [input_dim] + list(down_dims)
         start_dim = down_dims[0]
@@ -145,60 +162,82 @@ class ConditionalUnet1D(nn.Module):
             local_cond_encoder = nn.ModuleList([
                 # down encoder
                 ConditionalResidualBlock1D(
-                    dim_in, dim_out, cond_dim=cond_dim, 
-                    kernel_size=kernel_size, n_groups=n_groups,
+                    dim_in,
+                    dim_out,
+                    cond_dim=cond_dim,
+                    kernel_size=kernel_size,
+                    n_groups=n_groups,
                     cond_predict_scale=cond_predict_scale),
                 # up encoder
                 ConditionalResidualBlock1D(
-                    dim_in, dim_out, cond_dim=cond_dim, 
-                    kernel_size=kernel_size, n_groups=n_groups,
+                    dim_in,
+                    dim_out,
+                    cond_dim=cond_dim,
+                    kernel_size=kernel_size,
+                    n_groups=n_groups,
                     cond_predict_scale=cond_predict_scale)
             ])
 
         mid_dim = all_dims[-1]
         self.mid_modules = nn.ModuleList([
-            ConditionalResidualBlock1D(
-                mid_dim, mid_dim, cond_dim=cond_dim,
-                kernel_size=kernel_size, n_groups=n_groups,
-                cond_predict_scale=cond_predict_scale
-            ),
-            ConditionalResidualBlock1D(
-                mid_dim, mid_dim, cond_dim=cond_dim,
-                kernel_size=kernel_size, n_groups=n_groups,
-                cond_predict_scale=cond_predict_scale
-            ),
+            ConditionalResidualBlock1D(mid_dim,
+                                       mid_dim,
+                                       cond_dim=cond_dim,
+                                       kernel_size=kernel_size,
+                                       n_groups=n_groups,
+                                       cond_predict_scale=cond_predict_scale),
+            ConditionalResidualBlock1D(mid_dim,
+                                       mid_dim,
+                                       cond_dim=cond_dim,
+                                       kernel_size=kernel_size,
+                                       n_groups=n_groups,
+                                       cond_predict_scale=cond_predict_scale),
         ])
 
         down_modules = nn.ModuleList([])
         for ind, (dim_in, dim_out) in enumerate(in_out):
             is_last = ind >= (len(in_out) - 1)
-            down_modules.append(nn.ModuleList([
-                ConditionalResidualBlock1D(
-                    dim_in, dim_out, cond_dim=cond_dim, 
-                    kernel_size=kernel_size, n_groups=n_groups,
-                    cond_predict_scale=cond_predict_scale),
-                ConditionalResidualBlock1D(
-                    dim_out, dim_out, cond_dim=cond_dim, 
-                    kernel_size=kernel_size, n_groups=n_groups,
-                    cond_predict_scale=cond_predict_scale),
-                Downsample1d(dim_out) if not is_last else nn.Identity()
-            ]))
+            down_modules.append(
+                nn.ModuleList([
+                    ConditionalResidualBlock1D(
+                        dim_in,
+                        dim_out,
+                        cond_dim=cond_dim,
+                        kernel_size=kernel_size,
+                        n_groups=n_groups,
+                        cond_predict_scale=cond_predict_scale),
+                    ConditionalResidualBlock1D(
+                        dim_out,
+                        dim_out,
+                        cond_dim=cond_dim,
+                        kernel_size=kernel_size,
+                        n_groups=n_groups,
+                        cond_predict_scale=cond_predict_scale),
+                    Downsample1d(dim_out) if not is_last else nn.Identity()
+                ]))
 
         up_modules = nn.ModuleList([])
         for ind, (dim_in, dim_out) in enumerate(reversed(in_out[1:])):
             is_last = ind >= (len(in_out) - 1)
-            up_modules.append(nn.ModuleList([
-                ConditionalResidualBlock1D(
-                    dim_out*2, dim_in, cond_dim=cond_dim,
-                    kernel_size=kernel_size, n_groups=n_groups,
-                    cond_predict_scale=cond_predict_scale),
-                ConditionalResidualBlock1D(
-                    dim_in, dim_in, cond_dim=cond_dim,
-                    kernel_size=kernel_size, n_groups=n_groups,
-                    cond_predict_scale=cond_predict_scale),
-                Upsample1d(dim_in) if not is_last else nn.Identity()
-            ]))
-        
+            up_modules.append(
+                nn.ModuleList([
+                    ConditionalResidualBlock1D(
+                        dim_out * 2,
+                        dim_in,
+                        cond_dim=cond_dim,
+                        kernel_size=kernel_size,
+                        n_groups=n_groups,
+                        cond_predict_scale=cond_predict_scale),
+                    ConditionalResidualBlock1D(
+                        dim_in,
+                        dim_in,
+                        cond_dim=cond_dim,
+                        kernel_size=kernel_size,
+                        n_groups=n_groups,
+                        cond_predict_scale=cond_predict_scale),
+                    Upsample1d(dim_in) if not is_last else nn.Identity()
+                ]))
+
         final_conv = nn.Sequential(
             Conv1dBlock(start_dim, start_dim, kernel_size=kernel_size),
             nn.Conv1d(start_dim, input_dim, 1),
@@ -210,10 +249,12 @@ class ConditionalUnet1D(nn.Module):
         self.down_modules = down_modules
         self.final_conv = final_conv
 
-    def forward(self, 
-            sample: torch.Tensor, 
-            timestep: Union[torch.Tensor, float, int], 
-            local_cond=None, global_cond=None, **kwargs):
+    def forward(self,
+                sample: torch.Tensor,
+                timestep: Union[torch.Tensor, float, int],
+                local_cond=None,
+                global_cond=None,
+                **kwargs):
         """
         x: (B,T,input_dim)
         timestep: (B,) or int, diffusion step
@@ -227,7 +268,9 @@ class ConditionalUnet1D(nn.Module):
         timesteps = timestep
         if not torch.is_tensor(timesteps):
             # TODO: this requires sync between CPU and GPU. So try to pass timesteps as tensors if you can
-            timesteps = torch.tensor([timesteps], dtype=torch.long, device=sample.device)
+            timesteps = torch.tensor([timesteps],
+                                     dtype=torch.long,
+                                     device=sample.device)
         elif torch.is_tensor(timesteps) and len(timesteps.shape) == 0:
             timesteps = timesteps[None].to(sample.device)
         # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
@@ -236,10 +279,8 @@ class ConditionalUnet1D(nn.Module):
         global_feature = self.diffusion_step_encoder(timesteps)
 
         if global_cond is not None:
-            global_feature = torch.cat([
-                global_feature, global_cond
-            ], axis=-1)
-        
+            global_feature = torch.cat([global_feature, global_cond], axis=-1)
+
         # encode local features
         h_local = list()
         if local_cond is not None:
@@ -249,7 +290,7 @@ class ConditionalUnet1D(nn.Module):
             h_local.append(x)
             x = resnet2(local_cond, global_feature)
             h_local.append(x)
-        
+
         x = sample
         h = []
         for idx, (resnet, resnet2, downsample) in enumerate(self.down_modules):

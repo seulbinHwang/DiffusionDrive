@@ -6,28 +6,31 @@ __all__ = ["MotionTarget", "PlanningTarget"]
 
 
 def get_cls_target(
-    reg_preds, 
+    reg_preds,
     reg_target,
     reg_weight,
 ):
     bs, num_pred, mode, ts, d = reg_preds.shape
     reg_preds_cum = reg_preds.cumsum(dim=-2)
     reg_target_cum = reg_target.cumsum(dim=-2)
-    dist = torch.linalg.norm(reg_target_cum.unsqueeze(2) - reg_preds_cum, dim=-1)
+    dist = torch.linalg.norm(reg_target_cum.unsqueeze(2) - reg_preds_cum,
+                             dim=-1)
     dist = dist * reg_weight.unsqueeze(2)
     dist = dist.mean(dim=-1)
     mode_idx = torch.argmin(dist, dim=-1)
     return mode_idx
 
+
 def get_best_reg(
-    reg_preds, 
+    reg_preds,
     reg_target,
     reg_weight,
 ):
     bs, num_pred, mode, ts, d = reg_preds.shape
     reg_preds_cum = reg_preds.cumsum(dim=-2)
     reg_target_cum = reg_target.cumsum(dim=-2)
-    dist = torch.linalg.norm(reg_target_cum.unsqueeze(2) - reg_preds_cum, dim=-1)
+    dist = torch.linalg.norm(reg_target_cum.unsqueeze(2) - reg_preds_cum,
+                             dim=-1)
     dist = dist * reg_weight.unsqueeze(2)
     dist = dist.mean(dim=-1)
     mode_idx = torch.argmin(dist, dim=-1)
@@ -38,9 +41,8 @@ def get_best_reg(
 
 @BBOX_SAMPLERS.register_module()
 class MotionTarget():
-    def __init__(
-        self,
-    ):
+
+    def __init__(self,):
         super(MotionTarget, self).__init__()
 
     def sample(
@@ -61,7 +63,7 @@ class MotionTarget():
             reg_target[i, pred_idx] = gt_reg_target[i][target_idx]
             reg_weight[i, pred_idx] = gt_reg_mask[i][target_idx]
             num_pos += len(pred_idx)
-        
+
         cls_target = get_cls_target(reg_pred, reg_target, reg_weight)
         cls_weight = reg_weight.any(dim=-1)
         best_reg = get_best_reg(reg_pred, reg_target, reg_weight)
@@ -71,6 +73,7 @@ class MotionTarget():
 
 @BBOX_SAMPLERS.register_module()
 class PlanningTarget():
+
     def __init__(
         self,
         ego_fut_ts,
@@ -97,7 +100,8 @@ class PlanningTarget():
         cmd = data['gt_ego_fut_cmd'].argmax(dim=-1)
 
         cls_pred = cls_pred.reshape(bs, 3, 1, self.ego_fut_mode)
-        reg_pred = reg_pred.reshape(bs, 3, 1, self.ego_fut_mode, self.ego_fut_ts, 2)
+        reg_pred = reg_pred.reshape(bs, 3, 1, self.ego_fut_mode,
+                                    self.ego_fut_ts, 2)
         cls_pred = cls_pred[bs_indices, cmd]
         reg_pred = reg_pred[bs_indices, cmd]
         cls_target = get_cls_target(reg_pred, gt_reg_target, gt_reg_mask)
@@ -105,18 +109,21 @@ class PlanningTarget():
         best_reg = get_best_reg(reg_pred, gt_reg_target, gt_reg_mask)
         # import ipdb;ipdb.set_trace()
         if diffusion_loss is not None:
-            diffusion_loss = diffusion_loss.reshape(bs, 3, 1, self.ego_fut_mode,-1)
+            diffusion_loss = diffusion_loss.reshape(bs, 3, 1, self.ego_fut_mode,
+                                                    -1)
             diffusion_loss = diffusion_loss[bs_indices, cmd]
-            mode_idx = cls_target[..., None, None].repeat(1, 1, 1, self.ego_fut_ts*2)
-            diffusion_loss = torch.gather(diffusion_loss, 2, mode_idx).squeeze(2)
+            mode_idx = cls_target[..., None,
+                                  None].repeat(1, 1, 1, self.ego_fut_ts * 2)
+            diffusion_loss = torch.gather(diffusion_loss, 2,
+                                          mode_idx).squeeze(2)
             diffusion_loss = diffusion_loss.mean()
             return cls_pred, cls_target, cls_weight, best_reg, gt_reg_target, gt_reg_mask, diffusion_loss
         return cls_pred, cls_target, cls_weight, best_reg, gt_reg_target, gt_reg_mask
 
 
-
 @BBOX_SAMPLERS.register_module()
 class V1PlanningTarget():
+
     def __init__(
         self,
         ego_fut_ts,
@@ -128,14 +135,15 @@ class V1PlanningTarget():
 
     @staticmethod
     def get_cls_target(
-        reg_preds, 
+        reg_preds,
         reg_target,
         reg_weight,
     ):
         bs, num_pred, mode, ts, d = reg_preds.shape
         reg_preds_cum = reg_preds.cumsum(dim=-2)
         reg_target_cum = reg_target.cumsum(dim=-2)
-        dist = torch.linalg.norm(reg_target_cum.unsqueeze(2) - reg_preds_cum, dim=-1)
+        dist = torch.linalg.norm(reg_target_cum.unsqueeze(2) - reg_preds_cum,
+                                 dim=-1)
         dist = dist * reg_weight.unsqueeze(2)
         dist = dist.mean(dim=-1)
         mode_idx = torch.argmin(dist, dim=-1)
@@ -180,20 +188,24 @@ class V1PlanningTarget():
         cmd = data['gt_ego_fut_cmd'].argmax(dim=-1)
 
         cls_pred = cls_pred.reshape(bs, 3, 1, self.ego_fut_mode)
-        reg_pred = reg_pred.reshape(bs, 3, 1, self.ego_fut_mode, self.ego_fut_ts, 2)
+        reg_pred = reg_pred.reshape(bs, 3, 1, self.ego_fut_mode,
+                                    self.ego_fut_ts, 2)
         cls_pred = cls_pred[bs_indices, cmd]
         reg_pred = reg_pred[bs_indices, cmd]
         # import ipdb;ipdb.set_trace()
-        cls_target = self.get_cls_target(tgt_cmd_plan_anchor.view(bs,1,self.ego_fut_mode, self.ego_fut_ts, 2), gt_reg_target, gt_reg_mask)
+        cls_target = self.get_cls_target(
+            tgt_cmd_plan_anchor.view(bs, 1, self.ego_fut_mode, self.ego_fut_ts,
+                                     2), gt_reg_target, gt_reg_mask)
         cls_weight = gt_reg_mask.any(dim=-1)
-        best_reg = self.get_best_reg(reg_pred, cls_target,gt_reg_target, gt_reg_mask)
+        best_reg = self.get_best_reg(reg_pred, cls_target, gt_reg_target,
+                                     gt_reg_mask)
         # import ipdb;ipdb.set_trace()
         return cls_pred, cls_target, cls_weight, best_reg, gt_reg_target, gt_reg_mask
 
 
-
 @BBOX_SAMPLERS.register_module()
 class V2PlanningTarget():
+
     def __init__(
         self,
         ego_fut_ts,
@@ -205,7 +217,7 @@ class V2PlanningTarget():
 
     @staticmethod
     def get_cls_target(
-        reg_preds, 
+        reg_preds,
         reg_target,
         reg_weight,
     ):
@@ -216,12 +228,13 @@ class V2PlanningTarget():
         # dist = dist * reg_weight.unsqueeze(2)
         # dist = dist.mean(dim=-1)
         # mode_idx = torch.argmin(dist, dim=-1)
-        mode_idx = torch.zeros(bs,num_pred, dtype=torch.int64).to(reg_preds.device)
+        mode_idx = torch.zeros(bs, num_pred,
+                               dtype=torch.int64).to(reg_preds.device)
         return mode_idx
 
     @staticmethod
     def get_best_reg(
-        reg_preds, 
+        reg_preds,
         reg_target,
         reg_weight,
     ):
@@ -232,7 +245,8 @@ class V2PlanningTarget():
         # dist = dist * reg_weight.unsqueeze(2)
         # dist = dist.mean(dim=-1)
         # mode_idx = torch.argmin(dist, dim=-1)
-        mode_idx = torch.zeros(bs,num_pred, dtype=torch.int64).to(reg_preds.device)
+        mode_idx = torch.zeros(bs, num_pred,
+                               dtype=torch.int64).to(reg_preds.device)
         mode_idx = mode_idx[..., None, None, None].repeat(1, 1, 1, ts, d)
         best_reg = torch.gather(reg_preds, 2, mode_idx).squeeze(2)
         return best_reg
@@ -254,7 +268,8 @@ class V2PlanningTarget():
         # cmd = data['gt_ego_fut_cmd'].argmax(dim=-1)
 
         cls_pred = cls_pred.reshape(bs, 1, self.ego_fut_mode)
-        reg_pred = reg_pred.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts, 2)
+        reg_pred = reg_pred.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts,
+                                    2)
         # cls_pred = cls_pred[bs_indices, cmd]
         # reg_pred = reg_pred[bs_indices, cmd]
         # import ipdb;ipdb.set_trace()
@@ -267,6 +282,7 @@ class V2PlanningTarget():
 
 @BBOX_SAMPLERS.register_module()
 class V3PlanningTarget():
+
     def __init__(
         self,
         ego_fut_ts,
@@ -278,14 +294,15 @@ class V3PlanningTarget():
 
     @staticmethod
     def get_cls_target(
-        reg_preds, 
+        reg_preds,
         reg_target,
         reg_weight,
     ):
         bs, num_pred, mode, ts, d = reg_preds.shape
         reg_preds_cum = reg_preds.cumsum(dim=-2)
         reg_target_cum = reg_target.cumsum(dim=-2)
-        dist = torch.linalg.norm(reg_target_cum.unsqueeze(2) - reg_preds_cum, dim=-1)
+        dist = torch.linalg.norm(reg_target_cum.unsqueeze(2) - reg_preds_cum,
+                                 dim=-1)
         dist = dist * reg_weight.unsqueeze(2)
         dist = dist.mean(dim=-1)
         mode_idx = torch.argmin(dist, dim=-1)
@@ -294,7 +311,7 @@ class V3PlanningTarget():
 
     @staticmethod
     def get_best_reg(
-        reg_preds, 
+        reg_preds,
         cls_target,
         reg_target,
         reg_weight,
@@ -330,12 +347,16 @@ class V3PlanningTarget():
         # cmd = data['gt_ego_fut_cmd'].argmax(dim=-1)
 
         cls_pred = cls_pred.reshape(bs, 1, self.ego_fut_mode)
-        reg_pred = reg_pred.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts, 2)
+        reg_pred = reg_pred.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts,
+                                    2)
         # cls_pred = cls_pred[bs_indices, cmd]
         # reg_pred = reg_pred[bs_indices, cmd]
         # import ipdb;ipdb.set_trace()
-        cls_target = self.get_cls_target(tgt_cmd_plan_anchor.view(bs,1,self.ego_fut_mode, self.ego_fut_ts, 2), gt_reg_target, gt_reg_mask)
+        cls_target = self.get_cls_target(
+            tgt_cmd_plan_anchor.view(bs, 1, self.ego_fut_mode, self.ego_fut_ts,
+                                     2), gt_reg_target, gt_reg_mask)
         cls_weight = gt_reg_mask.any(dim=-1)
-        best_reg = self.get_best_reg(reg_pred, cls_target, gt_reg_target, gt_reg_mask)
+        best_reg = self.get_best_reg(reg_pred, cls_target, gt_reg_target,
+                                     gt_reg_mask)
         # import ipdb;ipdb.set_trace()
         return cls_pred, cls_target, cls_weight, best_reg, gt_reg_target, gt_reg_mask
