@@ -629,7 +629,7 @@ class V1TrajPooler(BaseModule):
         projection_mat = metas["projection_mat"] # (b, 6, 4, 4)
         image_wh = metas.get("image_wh") # (b, 6, 2)
         # points_2d: (b, 6, 6, 30, 2)
-        """생성된 3D 키포인트를, 메타 정보에 있는 카메라 프로젝션 행렬을 사용해 2D 이미지 평면에 투영합니다."""
+        """생성된 3D 키포인트를, 메타 정보에 있는 카메라 프로젝션 행렬을 사용해 2D 이미지 평면에 투영"""
         points_2d = self.project_points(
             key_points,
             projection_mat,

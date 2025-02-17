@@ -25,18 +25,43 @@ class SparseBox3DMotionDecoder(SparseBox3DDecoder):
         motion_output=None,
         output_idx=-1,
     ):
-        squeeze_cls = instance_id is not None
+        """
+        cls_scores: List (len=6) [ , ... ,  (b, 900, 10) ]
+        box_preds: List (len=6) [ , ... ,  (b, 900, 11) ]
+        instance_id: (b, 900)
+        quality: List (len=6) [, ... (b, 1, 900, 2) ]
+            - 2 : centerness and yawness indices in quality
+        motion_output : Dict
+            "classification": len = 1
+                (1, 900, fut_mode=6)
+            "prediction": len = 1
+                (1, 900, fut_mode=6, fut_ts=12, 2)
+            "period": (1, 900)
+            "anchor_queue": len = 4
+                (1, 900, 11)
+        return
+            output: List (len=b) [Dict ,... Dict]
+                Dict
+                    "trajs_3d": (num_output=300, fut_mode=6, fut_ts=12, 2)
+                    "trajs_score": (num_output, fut_mode=6)
+                    "anchor_queue": (num_output, 1, 10)
+                    "period": (num_output)
+        """
+        squeeze_cls = instance_id is not None # True
 
-        cls_scores = cls_scores[output_idx].sigmoid()
+        cls_scores = cls_scores[output_idx].sigmoid() # (b, 900, 10)
 
         if squeeze_cls:
+            # cls_scores, cls_ids : (b, 900)
             cls_scores, cls_ids = cls_scores.max(dim=-1)
+            # cls_scores : (b, 900, 1)
             cls_scores = cls_scores.unsqueeze(dim=-1)
 
-        box_preds = box_preds[output_idx]
+        box_preds = box_preds[output_idx] # (b, 900, 11)
         bs, num_pred, num_cls = cls_scores.shape
-        cls_scores, indices = cls_scores.flatten(start_dim=1).topk(
-            self.num_output, dim=1, sorted=self.sorted)
+        a = cls_scores.flatten(start_dim=1) # a: (b, 900)
+        # cls_scores: (b, num_output), indices: (b, num_output)
+        cls_scores, indices = a.topk(self.num_output, dim=1, sorted=self.sorted)
         if not squeeze_cls:
             cls_ids = indices % num_cls
         if self.score_threshold is not None:
@@ -45,28 +70,33 @@ class SparseBox3DMotionDecoder(SparseBox3DDecoder):
         if quality[output_idx] is None:
             quality = None
         if quality is not None:
-            centerness = quality[output_idx][..., CNS]
+            """ quality (centerness)로 cls_scores, indices 보정"""
+            a = quality[output_idx] # (b, 1, 900, 2)
+            centerness = a[..., CNS] # CNS = 0 (b, 1, 900)
+            # centerness: (b, num_output)
             centerness = torch.gather(centerness, 1, indices // num_cls)
+            # cls_scores_origin: (b, num_output)
             cls_scores_origin = cls_scores.clone()
-            cls_scores *= centerness.sigmoid()
+            cls_scores *= centerness.sigmoid() # (b, num_output)
+            # cls_scores, idx: (b, num_output)
             cls_scores, idx = torch.sort(cls_scores, dim=1, descending=True)
             if not squeeze_cls:
                 cls_ids = torch.gather(cls_ids, 1, idx)
             if self.score_threshold is not None:
                 mask = torch.gather(mask, 1, idx)
+            # indices: (b, num_output)
             indices = torch.gather(indices, 1, idx)
-
         output = []
-        anchor_queue = motion_output["anchor_queue"]
-        anchor_queue = torch.stack(anchor_queue, dim=2)
-        period = motion_output["period"]
+        anchor_queue = motion_output["anchor_queue"] #  len = 4, (b, 900, 11)
+        anchor_queue = torch.stack(anchor_queue, dim=2) # (b, 900, 4, 11)
+        period = motion_output["period"] # (b, 900)
 
         for i in range(bs):
-            category_ids = cls_ids[i]
+            category_ids = cls_ids[i] # (900)
             if squeeze_cls:
-                category_ids = category_ids[indices[i]]
-            scores = cls_scores[i]
-            box = box_preds[i, indices[i] // num_cls]
+                category_ids = category_ids[indices[i]] # (num_output)
+            scores = cls_scores[i] # (num_output)
+            box = box_preds[i, indices[i] // num_cls] # (num_output, 11)
             if self.score_threshold is not None:
                 category_ids = category_ids[mask[i]]
                 scores = scores[mask[i]]
@@ -75,19 +105,22 @@ class SparseBox3DMotionDecoder(SparseBox3DDecoder):
                 scores_origin = cls_scores_origin[i]
                 if self.score_threshold is not None:
                     scores_origin = scores_origin[mask[i]]
-
+            # (num_output, 11) -> (num_output, 10)
             box = decode_box(box)
+            # TODO: 여기서부터
             trajs = motion_output["prediction"][-1]
             traj_cls = motion_output["classification"][-1].sigmoid()
             traj = trajs[i, indices[i] // num_cls]
+            # traj_cls" (num_output, fut_mode=6)
             traj_cls = traj_cls[i, indices[i] // num_cls]
             if self.score_threshold is not None:
                 traj = traj[mask[i]]
                 traj_cls = traj_cls[mask[i]]
+            # traj: (num_output=300, fut_mode=6, fut_ts=12, 2)
             traj = traj.cumsum(dim=-2) + box[:, None, None, :2]
             output.append({
-                "trajs_3d": traj.cpu(),
-                "trajs_score": traj_cls.cpu()
+                "trajs_3d": traj.cpu(), # (num_output=300, fut_mode=6, fut_ts=12, 2)
+                "trajs_score": traj_cls.cpu() # (num_output, fut_mode=6)
             })
 
             temp_anchor = anchor_queue[i, indices[i] // num_cls]
@@ -100,8 +133,8 @@ class SparseBox3DMotionDecoder(SparseBox3DDecoder):
             temp_anchor = decode_box(temp_anchor)
             temp_anchor = temp_anchor.reshape(
                 [num_pred, queue_len, box.shape[-1]])
-            output[-1]['anchor_queue'] = temp_anchor.cpu()
-            output[-1]['period'] = temp_period.cpu()
+            output[-1]['anchor_queue'] = temp_anchor.cpu() # (num_output, 1, 10)
+            output[-1]['period'] = temp_period.cpu() # (num_output)
 
         return output
 

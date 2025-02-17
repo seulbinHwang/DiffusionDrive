@@ -7,6 +7,14 @@ from mmdet.core.bbox.builder import BBOX_CODERS
 from projects.mmdet3d_plugin.core.box3d import *
 
 def decode_box(box):
+    """
+    box: (num_boxes, 11)
+        x, y, z, log w, log l, log h, sin yaw, cos yaw, vx, vy, vz
+
+    return: (num_boxes, 10)
+        x, y, z, w, l, h, yaw, vx, vy, vz
+
+    """
     yaw = torch.atan2(box[..., SIN_YAW], box[..., COS_YAW])
     box = torch.cat(
         [

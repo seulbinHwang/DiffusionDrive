@@ -114,6 +114,26 @@ class V1SparseDrive(BaseDetector):
     def simple_test(self, img, **data):
         feature_maps = self.extract_feat(img)
         model_outs = self.head(feature_maps, data)
+        """ model_outs: det_output, map_output, motion_output, planning_output
+         motion_output : Dict
+         "classification": len = 1
+             (1, 900, fut_mode=6)
+         "prediction": len = 1
+             (1, 900, fut_mode=6, fut_ts=12, 2)
+         "period": (1, 900)
+         "anchor_queue": len = 4
+             (1, 900, 11)
+        planning_output : Dict
+        classification: len 1
+            (1, 1, cmd_mode(3)*modal_mode(6)=18)
+        prediction: len 1
+            (1, 1, cmd_mode(3)*modal_mode(6)=18, ego_fut_mode=6, 2)
+        status: len 1
+            (1, 1, 10)
+        anchor_queue: len 4
+            (1, 1, 11)
+        period: ( 1, 11)
+        """
         results = self.head.post_process(model_outs, data)
         output = [{"img_bbox": result} for result in results]
         return output

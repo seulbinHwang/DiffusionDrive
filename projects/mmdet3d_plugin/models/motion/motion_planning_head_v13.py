@@ -1329,10 +1329,10 @@ class V13MotionPlanningHead(BaseModule):
     – (6, 4)에서 6는 카메라 수, 4는 각 카메라에서의 스케일 수를 의미하며, 
         이 값들을 이용해 분할된 feature map 들을 다시 각 스케일 단위로 분리하거나 재구성할 수 있음
                     """
-                    # V1TrajPooler : 카메라 feature map과 traj_feature간 cross attention (Deformable Aggregation)
+                    # V1TrajPooler : 카메라 feature map과 traj_feature 간 cross attention (Deformable Aggregation)
                     # traj_feature: (b, 6, 256)
                     traj_feature = self.diff_layers[i](
-                        traj_feature,
+                        traj_feature, # (b, 6, 256)
                         diff_plan_reg, # (b*6, 6, 2)
                         metas,
                         feature_maps,
@@ -1396,6 +1396,7 @@ class V13MotionPlanningHead(BaseModule):
             diff_plan_reg: (b, 1, 3*6, 6, 2)
             diff_plan_cls: (b, 1, 3*6)
                     """
+                    # diff_refine: V4DiffMotionPlanningRefinementModule
                     diff_plan_reg, diff_plan_cls = self.diff_layers[i](
                         traj_feature,) # (b, 6, 256)
             # import ipdb;ipdb.set_trace()
@@ -1435,9 +1436,28 @@ class V13MotionPlanningHead(BaseModule):
         diff_planning_prediction.append(c)
         # diff_plan_cls: (b, 1, 3*6)
         diff_planning_classification.append(diff_plan_cls)
-        planning_output["prediction"] = diff_planning_prediction # []
+        planning_output["prediction"] = diff_planning_prediction
         planning_output["classification"] = diff_planning_classification
-
+        """ motion_output : Dict
+        "classification": len = 1
+            (1, 900, fut_mode=6)
+        "prediction": len = 1
+            (1, 900, fut_mode=6, fut_ts=12, 2)
+        "period": (1, 900)
+        "anchor_queue": len = 4
+            (1, 900, 11)
+        """
+        """ planning_output : Dict
+        classification: len 1
+            (1, 1, cmd_mode(3)*modal_mode(6)=18)
+        prediction: len 1
+            (1, 1, cmd_mode(3)*modal_mode(6)=18, ego_fut_mode=6, 2)
+        status: len 1
+            (1, 1, 10)
+        anchor_queue: len 4
+            (1, 1, 11)
+        period: ( 1, 11)
+        """
         return motion_output, planning_output
 
     def loss(self, motion_model_outs, planning_model_outs, data,
@@ -1638,12 +1658,13 @@ class V13MotionPlanningHead(BaseModule):
             period: (300)
         
         """
+        # SparseBox3DMotionDecoder
         motion_result = self.motion_decoder.decode(
-            det_output["classification"],
-            det_output["prediction"],
-            det_output.get("instance_id"),  # [1, 900]
-            det_output.get("quality"),
-            motion_output,
+            cls_scores=det_output["classification"], # List (len=6) [ , ... ,  (b, 900, 10) ]
+            box_preds=det_output["prediction"], # List (len=6) [ , ... ,  (b, 900, 11) ]
+            instance_id=det_output.get("instance_id"),  # [1, 900]
+            quality=det_output.get("quality"), # List (len=6) [, ... (b, 1, 900, 2) ]
+            motion_output=motion_output,
         )
         """ planning result: len = 1 (아마 batch size 만큼 나올 것)
         dict
@@ -1653,6 +1674,7 @@ class V13MotionPlanningHead(BaseModule):
             ego_period: (1)
             ego_anchor_queue: (1, max_length=4, 10)
         """
+        # HierarchicalPlanningDecoder
         planning_result = self.planning_decoder.decode(
             det_output,
             motion_output,
