@@ -1426,14 +1426,16 @@ class V13MotionPlanningHead(BaseModule):
         # diffusion_output_y = (diffusion_output_y + 1) / 2 * 8.1 - 0.5
         # plan_reg = torch.cat([diffusion_output_x, diffusion_output_y], dim=2)
         # diff_plan_reg: (b*6, 6, 2)
-        # a: (b, 1, 6, 6, 2)
+        # a: (b, 1, 6(=ego_fut_mode), 6(=ego_fut_ts), 2)
         a = diff_plan_reg.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts, 2)
-        #
+        # b: (b, 3, 6(=ego_fut_mode), 6(=ego_fut_ts), 2)
         b = a.repeat(1,3,1,1,1)
+        # c: (b, 1, 3* 6(=ego_fut_mode), 6(=ego_fut_ts), 2)
         c = b.view(bs,1,3*self.ego_fut_mode,self.ego_fut_ts,2)
         diff_planning_prediction.append(c)
+        # diff_plan_cls: (b, 1, 3*6)
         diff_planning_classification.append(diff_plan_cls)
-        planning_output["prediction"] = diff_planning_prediction
+        planning_output["prediction"] = diff_planning_prediction # []
         planning_output["classification"] = diff_planning_classification
 
         return motion_output, planning_output
