@@ -44,7 +44,7 @@ class SparseBox3DMotionDecoder(SparseBox3DDecoder):
                 Dict
                     "trajs_3d": (num_output=300, fut_mode=6, fut_ts=12, 2)
                     "trajs_score": (num_output, fut_mode=6)
-                    "anchor_queue": (num_output, 1, 10)
+                    "anchor_queue": (num_output, 4, 10)
                     "period": (num_output)
         """
         squeeze_cls = instance_id is not None # True
@@ -70,9 +70,12 @@ class SparseBox3DMotionDecoder(SparseBox3DDecoder):
         if quality[output_idx] is None:
             quality = None
         if quality is not None:
-            """ quality (centerness)로 cls_scores, indices 보정"""
-            a = quality[output_idx] # (b, 1, 900, 2)
-            centerness = a[..., CNS] # CNS = 0 (b, 1, 900)
+            """ quality (centerness)로 cls_scores, indices 보정
+            0: centerness (객체 중심에 얼마나 가까운지, 즉 박스 품질의 신뢰도)
+            1:  yawness (예측한 회전각의 신뢰도)
+            """
+            a = quality[output_idx] # (b, 900, 2)
+            centerness = a[..., CNS] # CNS = 0 (b, 900)
             # centerness: (b, num_output)
             centerness = torch.gather(centerness, 1, indices // num_cls)
             # cls_scores_origin: (b, num_output)
@@ -102,38 +105,51 @@ class SparseBox3DMotionDecoder(SparseBox3DDecoder):
                 scores = scores[mask[i]]
                 box = box[mask[i]]
             if quality is not None:
-                scores_origin = cls_scores_origin[i]
+                scores_origin = cls_scores_origin[i] # (num_output)
                 if self.score_threshold is not None:
                     scores_origin = scores_origin[mask[i]]
             # (num_output, 11) -> (num_output, 10)
             box = decode_box(box)
-            # TODO: 여기서부터
-            trajs = motion_output["prediction"][-1]
-            traj_cls = motion_output["classification"][-1].sigmoid()
-            traj = trajs[i, indices[i] // num_cls]
-            # traj_cls" (num_output, fut_mode=6)
-            traj_cls = traj_cls[i, indices[i] // num_cls]
+            trajs = motion_output["prediction"][-1] # (b, 900, fut_mode=6, fut_ts=12, 2)
+            traj_cls = motion_output["classification"][-1].sigmoid() # (b, 900, fut_mode=6)
+            traj = trajs[i, indices[i] // num_cls] # (num_output=300, fut_mode=6, fut_ts=12, 2)
+            traj_cls = traj_cls[i, indices[i] // num_cls] # (num_output=300, fut_mode=6)
             if self.score_threshold is not None:
                 traj = traj[mask[i]]
                 traj_cls = traj_cls[mask[i]]
             # traj: (num_output=300, fut_mode=6, fut_ts=12, 2)
-            traj = traj.cumsum(dim=-2) + box[:, None, None, :2]
+            traj = traj.cumsum(dim=-2) + box[:, None, None, :2] #
+            """
+            로직 (traj, traj_cls)
+                - 예측한 900 객체의 미래 경로(trajs)와 "경로 class"(traj_cls) -> num_output=300개로 추림
+                    - ("물체 class 확신 정도"가 높은 300개를 추림) + "물체 class 확신 정도" * "물체 중심의 신뢰도" 로 내림차순 정렬
+                - box = decode_box(box)
+                - traj가 변위 기준이었는데, 좌표 기준으로 바꾼 후, + (box 좌표 더해줘서) -> ego 차량 기준으로 변환
+            """
             output.append({
                 "trajs_3d": traj.cpu(), # (num_output=300, fut_mode=6, fut_ts=12, 2)
                 "trajs_score": traj_cls.cpu() # (num_output, fut_mode=6)
             })
 
-            temp_anchor = anchor_queue[i, indices[i] // num_cls]
-            temp_period = period[i, indices[i] // num_cls]
+            temp_anchor = anchor_queue[i, indices[i] // num_cls] # (num_output=300, queue_len=4, 11)
+            temp_period = period[i, indices[i] // num_cls] # (300)
             if self.score_threshold is not None:
                 temp_anchor = temp_anchor[mask[i]]
                 temp_period = temp_period[mask[i]]
-            num_pred, queue_len = temp_anchor.shape[:2]
-            temp_anchor = temp_anchor.flatten(0, 1)
+            num_pred, queue_len = temp_anchor.shape[:2] # num_pred: 300, queue_len: 4
+            temp_anchor = temp_anchor.flatten(0, 1) # (num_output * queue_len, 11)
+            # temp_anchor: (num_output * queue_len, 10)
             temp_anchor = decode_box(temp_anchor)
+
             temp_anchor = temp_anchor.reshape(
-                [num_pred, queue_len, box.shape[-1]])
-            output[-1]['anchor_queue'] = temp_anchor.cpu() # (num_output, 1, 10)
+                [num_pred, queue_len, box.shape[-1]]) # (num_output, queue_len, 10)
+            """
+            로직
+                anchor_queue (900, 4, 11) -> temp_anchor (300, 4, 11)
+                    - ("물체 class 확신 정도"가 높은 300개를 추림) + "물체 class 확신 정도" * "물체 중심의 신뢰도" 로 내림차순 정렬
+                temp_anchor = decode_box(temp_anchor) -> (300, 4, 10)
+            """
+            output[-1]['anchor_queue'] = temp_anchor.cpu() # (num_output, 4, 10)
             output[-1]['period'] = temp_period.cpu() # (num_output)
 
         return output
