@@ -176,80 +176,132 @@ class HierarchicalPlanningDecoder(object):
         planning_output,
         data,
     ):
+        """ det_output : Dict
+        len(det_output['classification']): 6
+            det_output['classification'][-1].shape: torch.Size([1, 900, 10])
+        len(det_output['prediction']): 6
+            det_output['prediction'][-1].shape: torch.Size([1, 900, 11])
+        len(det_output['quality']): 6
+            det_output['quality'][-1].shape: torch.Size([1, 900, 2])
+        """
+        """ motion_output : Dict
+        "classification": len = 1
+            (1, 900, fut_mode=6)
+        "prediction": len = 1
+            (1, 900, fut_mode=6, fut_ts=12, 2)
+        "period": (1, 900)
+        "anchor_queue": len = 4
+            (1, 900, 11)
+        """
+        """ planning_output : Dict
+        classification: len 1
+            (1, 1, cmd_mode(3)*modal_mode(6)=18)
+        prediction: len 1
+            (1, 1, cmd_mode(3)*modal_mode(6)=18, ego_fut_mode=6, 2)
+        status: len 1
+            (1, 1, 10)
+        anchor_queue: len 4
+            (1, 1, 11)
+        period: ( 1, 11)
+        """
+        """
+        Return
+            output: List (len=b) [Dict ,... Dict]
+                Dict
+                    planning_score : (3, modal_mode=6)
+                    planning : (3, modal_mode=6, ego_fut_ts=6, 2 )
+                    final_planning : (ego_fut_ts=6, 2)
+                    ego_period : (1)
+                    ego_anchor_queue : (1, 4, 10)
+        """
         # import ipdb;ipdb.set_trace()
         classification = planning_output['classification'][
-            -1]  # bs, 1, cmd_mode*modal_mode
+            -1]  # bs, 1, cmd_mode*modal_mode # (b, 1, 18)
         prediction = planning_output['prediction'][
-            -1]  # bs,1,cmd_mode*modal_mode,ego_fut_ts,2
+            -1]  # bs,1,cmd_mode*modal_mode,ego_fut_ts,2 # (b, 1, 18, 6, 2)
         bs = classification.shape[0]
-        classification = classification.reshape(bs, 3, self.ego_fut_mode)
+        classification = classification.reshape(bs, 3, self.ego_fut_mode) # bs, 3, modal_mode=6
         prediction = prediction.reshape(bs, 3, self.ego_fut_mode,
-                                        self.ego_fut_ts, 2).cumsum(dim=-2)
-        # classification: bs, 3, modal_mode
-        # final_planning: bs, ego_fut_ts, 2
+                                        self.ego_fut_ts, 2).cumsum(dim=-2) # (bs, 3, modal_mode=6, ego_fut_ts=6, 2)
+        # classification: bs, 3, modal_mode=6
+        # final_planning: bs, ego_fut_ts=6, 2
+
+
         classification, final_planning = self.select(det_output, motion_output,
                                                      classification, prediction,
                                                      data)
-        anchor_queue = planning_output["anchor_queue"]
-        anchor_queue = torch.stack(anchor_queue, dim=2)
-        period = planning_output["period"]
+        anchor_queue = planning_output["anchor_queue"] # len = 4, (b, 1, 11)
+        anchor_queue = torch.stack(anchor_queue, dim=2) # (b, 1, 4, 11)
+        period = planning_output["period"] # (1, 1)
         output = []
-        for i, (cls, pred) in enumerate(zip(classification, prediction)):
+        for b_idx, (cls, pred) in enumerate(zip(classification, prediction)):
+            """
+            cls: (3, modal_mode=6)
+            pred: (3, modal_mode=6, ego_fut_ts=6, 2)
+            a: (1, 4, 10)
+            """
+            a = decode_box(anchor_queue[b_idx]).cpu() # a: (1, 4, 10)
             output.append({
                 "planning_score": cls.sigmoid().cpu(),
                 "planning": pred.cpu(),  # 3, modal_mode, ego_fut_ts, 2
-                "final_planning": final_planning[i].cpu(),  # ego_fut_ts, 2
-                "ego_period": period[i].cpu(),
-                "ego_anchor_queue": decode_box(anchor_queue[i]).cpu(),
+                "final_planning": final_planning[b_idx].cpu(),  # ego_fut_ts, 2
+                "ego_period": period[b_idx].cpu(), # (1)
+                "ego_anchor_queue": a, # (1, 4, 10)
             })
-
         return output
 
     def select(
         self,
         det_output,
         motion_output,
-        plan_cls,
-        plan_reg,
+        plan_cls, # (bs, 3, modal_mode=6)
+        plan_reg, # (bs, 3, modal_mode=6, ego_fut_ts=6, 2)
         data,
     ):
-        det_classification = det_output["classification"][-1].sigmoid()
-        det_anchors = det_output["prediction"][-1]
-        det_confidence = det_classification.max(dim=-1).values
-        motion_cls = motion_output["classification"][-1].sigmoid()
-        motion_reg = motion_output["prediction"][-1]
+        """
+        return
+            plan_cls_full : (bs, 3, modal_mode=6)
+            final_planning : (bs, ego_fut_ts=6, 2)
+        """
+        det_classification = det_output["classification"][-1].sigmoid() # (b, 900, 10)
+        det_anchors = det_output["prediction"][-1] # (b, 900, 11)
+        det_confidence = det_classification.max(dim=-1).values # (b, 900)
+        motion_cls = motion_output["classification"][-1].sigmoid() # (b, 900, fut_mode=6)
+        motion_reg = motion_output["prediction"][-1] # (b, 900, fut_mode=6, fut_ts=12, 2)
 
         # cmd select
         bs = motion_cls.shape[0]
         bs_indices = torch.arange(bs, device=motion_cls.device)
-        cmd = data['gt_ego_fut_cmd'].argmax(dim=-1)
-        plan_cls_full = plan_cls.detach().clone()
-        plan_cls = plan_cls[bs_indices, cmd]
-        plan_reg = plan_reg[bs_indices, cmd]
+        cmd = data['gt_ego_fut_cmd'].argmax(dim=-1) # [b, 3] -> [b]
+        plan_cls_full = plan_cls.detach().clone() # (bs, 3, modal_mode=6)
+        plan_cls = plan_cls[bs_indices, cmd] # (bs, modal_mode=6)
+        plan_reg = plan_reg[bs_indices, cmd] # (bs, modal_mode=6, ego_fut_ts=6, 2)
 
         # rescore
         if self.use_rescore:
+            # plan_cls: (bs, modal_mode=6)
             plan_cls = self.rescore(
-                plan_cls,
-                plan_reg,
-                motion_cls,
-                motion_reg,
-                det_anchors,
-                det_confidence,
+                plan_cls, # (bs, modal_mode=6)
+                plan_reg, # (bs, modal_mode=6, ego_fut_ts=6, 2)
+                motion_cls, # (b, 900, fut_mode=6)
+                motion_reg, # (b, 900, fut_mode=6, fut_ts=12, 2)
+                det_anchors, # (b, 900, 11)
+                det_confidence, # (b, 900)
             )
+        # plan_cls_full: (bs, 3, modal_mode=6)
         plan_cls_full[bs_indices, cmd] = plan_cls
-        mode_idx = plan_cls.argmax(dim=-1)
-        final_planning = plan_reg[bs_indices, mode_idx]
+        mode_idx = plan_cls.argmax(dim=-1) # mode_idx: (bs)
+        final_planning = plan_reg[bs_indices, mode_idx] # (bs, ego_fut_ts=6, 2)
         return plan_cls_full, final_planning
 
     def rescore(
         self,
-        plan_cls,
-        plan_reg,
-        motion_cls,
-        motion_reg,
-        det_anchors,
-        det_confidence,
+        plan_cls, # (bs, modal_mode=6)
+        plan_reg, # (bs, modal_mode=6, ego_fut_ts=6, 2)
+        motion_cls, # (b, 900, fut_mode=6)
+        motion_reg, # (b, 900, fut_mode=6, fut_ts=12, 2)
+        det_anchors, # (b, 900, 11)
+        det_confidence, # (b, 900)
         score_thresh=0.5,
         static_dis_thresh=0.5,
         dim_scale=1.1,
@@ -285,27 +337,47 @@ class HierarchicalPlanningDecoder(object):
                 yaw,
             )
             return yaw.unsqueeze(-1)
-
+        """
+        plan_cls, # (bs, modal_mode=6)
+        plan_reg, # (bs, modal_mode=6, ego_fut_ts=6, 2)
+        motion_cls, # (b, 900, fut_mode=6)
+        motion_reg, # (b, 900, fut_mode=6, fut_ts=12, 2)
+        det_anchors, # (b, 900, 11)
+        det_confidence, # (b, 900)
+        score_thresh=0.5,
+        static_dis_thresh=0.5,
+        dim_scale=1.1,
+        num_motion_mode=1,
+        offset=0.5,
+        """
         ## ego
         bs = plan_reg.shape[0]
-        plan_reg_cat = cat_with_zero(plan_reg)
+        plan_reg_cat = cat_with_zero(plan_reg) # (bs, modal_mode=6, ego_fut_ts=7, 2)
+        # ego_box: (bs, ego_fut_mode, ego_fut_ts=7, 7)
         ego_box = det_anchors.new_zeros(bs, self.ego_fut_mode,
                                         self.ego_fut_ts + 1, 7)
         ego_box[..., [X, Y]] = plan_reg_cat
         ego_box[...,
                 [W, L, H]] = ego_box.new_tensor([4.08, 1.73, 1.56]) * dim_scale
+        """
+        궤적의 연속된 점 사이의 차분을 이용해 yaw(회전각)를 계산합니다.
+        다만, 정적(static) 객체의 경우, 전체 이동 거리가 일정 임계값(static_dis_thresh) 미만이면 초기 yaw 값으로 고정
+        """
         ego_box[..., [YAW]] = get_yaw(plan_reg_cat)
 
         ## motion
-        motion_reg = motion_reg[..., :self.ego_fut_ts, :].cumsum(-2)
+        motion_reg = motion_reg[..., :self.ego_fut_ts, :].cumsum(-2) # (b, 900, fut_mode=6, ego_fut_ts=6, 2)
+        # ego 중심 좌표계로 변환
         motion_reg = cat_with_zero(motion_reg) + det_anchors[:, :, None,
-                                                             None, :2]
+                                                             None, :2] # (b, 900, fut_mode=6, ego_fut_ts=7, 2)
+        # motion_cls: (b, 900, fut_mode=6) # num_motion_mode=1
+        # motion_mode_idx: (b, 900, num_motion_mode=1)
         _, motion_mode_idx = torch.topk(motion_cls, num_motion_mode, dim=-1)
-        motion_mode_idx = motion_mode_idx[..., None,
-                                          None].repeat(1, 1, 1,
-                                                       self.ego_fut_ts + 1, 2)
+        a = motion_mode_idx[..., None, None] #(b, 900, num_motion_mode=1, 1, 1)
+        motion_mode_idx = a.repeat(1, 1, 1, self.ego_fut_ts + 1, 2) # (b, 900, num_motion_mode=1, ego_fut_ts=7, 2)
+        # motion_reg: (b, 900, fut_mode=6, ego_fut_ts=7, 2) -> (b, 900, num_motion_mode=1, ego_fut_ts=7, 2)
         motion_reg = torch.gather(motion_reg, 2, motion_mode_idx)
-
+        # motion_box: (b, 900, num_motion_mode=1, ego_fut_ts=7, 7)
         motion_box = motion_reg.new_zeros(motion_reg.shape[:-1] + (7,))
         motion_box[..., [X, Y]] = motion_reg
         motion_box[..., [W, L, H]] = det_anchors[..., None, None,
@@ -315,26 +387,38 @@ class HierarchicalPlanningDecoder(object):
             det_anchors[..., COS_YAW],
         )
         motion_box[..., [YAW]] = get_yaw(motion_reg, box_yaw.unsqueeze(-1))
-
+        # det_confidence: (b, 900)
         filter_mask = det_confidence < score_thresh
         motion_box[filter_mask] = 1e6
 
-        ego_box = ego_box[..., 1:, :]
-        motion_box = motion_box[..., 1:, :]
-
+        ego_box = ego_box[..., 1:, :] # (bs, ego_fut_mode=6, ego_fut_ts=6, 7)
+        motion_box = motion_box[..., 1:, :] # (b, 900, num_motion_mode=1, ego_fut_ts=6, 7)
         bs, num_ego_mode, ts, _ = ego_box.shape
         bs, num_anchor, num_motion_mode, ts, _ = motion_box.shape
-        ego_box = ego_box[:, None, None].repeat(1, num_anchor, num_motion_mode,
-                                                1, 1, 1).flatten(0, -2)
-        motion_box = motion_box.unsqueeze(3).repeat(1, 1, 1, num_ego_mode, 1,
-                                                    1).flatten(0, -2)
-
+        a = ego_box[:, None, None] # (bs, 1, 1, ego_fut_mode=6, ego_fut_ts=6, 7)
+        # b: (bs, 900, num_motion_mode=1, ego_fut_mode=6, ego_fut_ts=6, 7)
+        b = a.repeat(1, num_anchor, num_motion_mode,1, 1, 1)
+        # ego_box: (bs * 900  * num_motion_mode=1  * ego_fut_mode=6  * ego_fut_ts=6, 7)
+        ego_box = b.flatten(0, -2)
+        # d: (b, 900, num_motion_mode=1, 1, ego_fut_mode=6, ego_fut_ts=6, 7)
+        d = motion_box.unsqueeze(3)
+        # e: (b, 900, num_motion_mode=1, ego_fut_mode=6, ego_fut_ts=6, 7)
+        e = d.repeat(1, 1, 1, num_ego_mode, 1, 1)
+        # motion_box: (b * 900 * num_motion_mode=1 * ego_fut_mode=6 * ego_fut_ts=6, 7)
+        motion_box = e.flatten(0, -2)
         ego_box[0] += offset * torch.cos(ego_box[6])
         ego_box[1] += offset * torch.sin(ego_box[6])
-        col = check_collision(ego_box, motion_box)
-        col = col.reshape(bs, num_anchor, num_motion_mode, num_ego_mode,
-                          ts).permute(0, 3, 1, 2, 4)
-        col = col.flatten(2, -1).any(dim=-1)
+        col = check_collision(ego_box, motion_box) # col: (b * 900 * num_motion_mode=1 * ego_fut_mode=6 * ego_fut_ts=6)
+        # a: (b, 900, num_motion_mode=1, ego_fut_mode=6, ego_fut_ts=6)
+        a = col.reshape(bs, num_anchor, num_motion_mode, num_ego_mode,
+                          ts)
+        # b: (b,   ego_fut_mode=6, 900, num_motion_mode=1, ego_fut_ts=6)
+        b = a.permute(0, 3, 1, 2, 4)
+        # c: (b, ego_fut_mode=6, 900 * num_motion_mode=1 * ego_fut_ts=6)
+        c = b.flatten(2, -1)
+        # col: (b, ego_fut_mode=6)
+        col = c.any(dim=-1)
+        # all_col: (b)
         all_col = col.all(dim=-1)
         col[all_col] = False  # for case that all modes collide, no need to rescore
         score_offset = col.float() * -999

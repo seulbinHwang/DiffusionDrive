@@ -263,6 +263,10 @@ def main():
         outputs = mmcv.load(args.result_file)
     elif not distributed:
         model = MMDataParallel(model, device_ids=[0])
+        """
+        outputs : list (길이 = batch_size * len(dataset)) # TODO: check this
+            원소는 dict
+        """
         outputs = single_gpu_test(model, data_loader, args.show, args.show_dir)
     else:
         model = MMDistributedDataParallel(

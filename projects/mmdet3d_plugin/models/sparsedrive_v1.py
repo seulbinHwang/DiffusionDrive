@@ -134,6 +134,32 @@ class V1SparseDrive(BaseDetector):
             (1, 1, 11)
         period: ( 1, 11)
         """
+        """
+        results : list (len = b)
+        output : list (len = b)
+            output[0] : dict
+            dict
+                img_bbox
+                    boxes_3d : torch.Size([300, 10])
+                    scores_3d : torch.Size([300])
+                    labels_3d : torch.Size([300])
+                    cls_scores : torch.Size([300])
+                    instance_ids : torch.Size([300])
+                    vectors : list (len = 100)
+                        각 원소는 torch.Size([20, 2])
+                    trajs_3d : torch.Size([300, 6, 12, 2]) (motion_result)
+                    trajs_score : torch.Size([300, 6]) (motion_result)
+                    anchor_queue : torch.Size([300, 1, 10]) (motion_result)
+                    period : torch.Size([300]) (motion_result)
+                    planning_score : torch.Size([3, 6]) (planning_result)
+                    planning : torch.Size([3, 6, 6, 2]) (planning_result)
+                    final_planning : torch.Size([6, 2]) (planning_result)
+                    ego_period : torch.Size([1]) (planning_result)
+                    ego_anchor_queue : torch.Size([1, 1, 10]) (planning_result)
+
+
+        
+        """
         results = self.head.post_process(model_outs, data)
         output = [{"img_bbox": result} for result in results]
         return output

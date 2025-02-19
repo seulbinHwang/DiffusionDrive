@@ -1666,7 +1666,7 @@ class V13MotionPlanningHead(BaseModule):
             quality=det_output.get("quality"), # List (len=6) [, ... (b, 1, 900, 2) ]
             motion_output=motion_output,
         )
-        """ planning result: len = 1 (아마 batch size 만큼 나올 것)
+        """ planning result: List / len = 1 (아마 batch size 만큼 나올 것)
         dict
             planning_score: (cmd_mode=3, modal_mode=6)
             planning: (cmd_mode=3, modal_mode=6, ego_fut_mode=6, 2)
@@ -1681,5 +1681,4 @@ class V13MotionPlanningHead(BaseModule):
             planning_output,
             data,
         )
-
         return motion_result, planning_result
