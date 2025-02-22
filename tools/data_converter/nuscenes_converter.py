@@ -4,7 +4,7 @@ import copy
 import argparse
 from os import path as osp
 from collections import OrderedDict
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Dict
 
 import numpy as np
 from pyquaternion import Quaternion
@@ -56,10 +56,21 @@ def locate_message(utimes, utime):
 
 
 def geom2anno(map_geoms):
+    """ map_geoms
+    dict(
+        divider=all_dividers, # List[LineString]
+        ped_crossing=ped_crossing_lines, # List[LineString]
+        boundary=boundaries, # List[LineString]
+        drivable_area=drivable_areas, # List[Polygon],
+    )
+
+    return: Dict[int, List[np.ndarray]]: {label: [line1, line2, ...]}
+
+    """
     MAP_CLASSES = (
-        'ped_crossing',
-        'divider',
-        'boundary',
+        'ped_crossing', # 0
+        'divider', # 1
+        'boundary', # 2
     )
     vectors = {}
     for cls, geom_list in map_geoms.items():
@@ -116,7 +127,7 @@ def create_nuscenes_infos(
     os.makedirs(out_path, exist_ok=True)
 
     # filter existing scenes.
-    available_scenes = get_available_scenes(nusc)
+    available_scenes: List[Dict] = get_available_scenes(nusc)
     available_scene_names = [s['name'] for s in available_scenes]
     train_scenes = list(
         filter(lambda x: x in available_scene_names, train_scenes))
@@ -164,13 +175,15 @@ def create_nuscenes_infos(
         mmcv.dump(data, info_val_path)
 
 
-def get_available_scenes(nusc):
+def get_available_scenes(nusc) -> List[dict]:
     """Get available scenes from the input nuscenes class.
+
+    해당 scene의 첫번쨰 sample의 LIDAR_TOP 파일 경로를 가져와서 실제로 파일이 존재하면 -> available scene.
 
     Given the raw data, get the information of available scenes for
     further info generation.
 
-    Args:
+    Args
         nusc (class): Dataset class in the nuScenes dataset.
             nusc = NuScenes(version=version, dataroot=root_path, verbose=True)
 
@@ -213,6 +226,9 @@ def _fill_trainval_infos(nusc,
                          ego_fut_ts=6):
     """Generate the train/val infos from the raw data.
 
+        "한 샘플(키프레임)" 당 포함할 "과거 스윕(sweep) 수"를 지정
+        "LIDAR 센서의 연속 프레임 데이터를 활용하여 동적 정보를 보강"
+
     Args:
         nusc (:obj:`NuScenes`): Dataset class in the nuScenes dataset.
         train_scenes (list[str]): Basic information of training scenes.
@@ -228,6 +244,8 @@ def _fill_trainval_infos(nusc,
     train_nusc_infos = []
     val_nusc_infos = []
     cat2idx = {}
+    """NuScenes의 객체 카테고리 정보를 순회하면서, 각 객체의 이름과 인덱스를 매핑합니다. 
+    이 매핑은 나중에 어노테이션 처리 시 참조됩니다."""
     for idx, dic in enumerate(nusc.category):
         cat2idx[dic['name']] = idx
 
@@ -282,8 +300,19 @@ def _fill_trainval_infos(nusc,
 
         translation = list(lidar2global[:3, 3])
         rotation = list(Quaternion(matrix=lidar2global).q)
+        """ map_geoms
+        dict(
+            divider=all_dividers, # List[LineString]
+            ped_crossing=ped_crossing_lines, # List[LineString]
+            boundary=boundaries, # List[LineString]
+            drivable_area=drivable_areas, # List[Polygon],
+        )
+        """
         map_geoms = nusc_map_extractor.get_map_geom(map_location, translation,
                                                     rotation)
+        """ 지도 요소들을 후처리하여 벡터 형태로 변환
+        map_annos : Dict[int, List[np.ndarray]]: {label: [line1, line2, ...]}
+        """
         map_annos = geom2anno(map_geoms)
         info['map_annos'] = map_annos
 
@@ -404,6 +433,9 @@ def _fill_trainval_infos(nusc,
             rot_mat = Quaternion(cs_record['rotation']).inverse.rotation_matrix
             ego_fut_trajs = np.dot(rot_mat, ego_fut_trajs.T).T
             # drive command according to final fut step offset
+            """
+            6 * 0.5 = 3 초 후 미래 위치의 y 좌표가 2m 이상이면 우회전, -2m 이하이면 좌회전, 그 외에는 직진
+            """
             if ego_fut_trajs[-1][0] >= 2:
                 command = np.array([1, 0, 0])  # Turn Right
             elif ego_fut_trajs[-1][0] <= -2:
