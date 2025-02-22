@@ -11,7 +11,8 @@ class HumanAgent(AbstractAgent):
 
     def __init__(
         self,
-        trajectory_sampling: TrajectorySampling = TrajectorySampling(time_horizon=4, interval_length=0.5),
+        trajectory_sampling: TrajectorySampling = TrajectorySampling(
+            time_horizon=4, interval_length=0.5),
     ):
         """
         Initializes the human agent object.
@@ -32,7 +33,8 @@ class HumanAgent(AbstractAgent):
         """Inherited, see superclass."""
         return SensorConfig.build_no_sensors()
 
-    def compute_trajectory(self, agent_input: AgentInput, scene: Scene) -> Trajectory:
+    def compute_trajectory(self, agent_input: AgentInput,
+                           scene: Scene) -> Trajectory:
         """
         Computes the ego vehicle trajectory.
         :param current_input: Dataclass with agent inputs.

@@ -8,9 +8,9 @@ from navsim.agents.transfuser.transfuser_config import TransfuserConfig
 from navsim.agents.transfuser.transfuser_features import BoundingBox2DIndex
 
 
-def transfuser_loss(
-    targets: Dict[str, torch.Tensor], predictions: Dict[str, torch.Tensor], config: TransfuserConfig
-):
+def transfuser_loss(targets: Dict[str, torch.Tensor],
+                    predictions: Dict[str,
+                                      torch.Tensor], config: TransfuserConfig):
     """
     Helper function calculating complete loss of Transfuser
     :param targets: dictionary of name tensor pairings
@@ -19,23 +19,20 @@ def transfuser_loss(
     :return: combined loss value
     """
 
-    trajectory_loss = F.l1_loss(predictions["trajectory"], targets["trajectory"])
+    trajectory_loss = F.l1_loss(predictions["trajectory"],
+                                targets["trajectory"])
     agent_class_loss, agent_box_loss = _agent_loss(targets, predictions, config)
-    bev_semantic_loss = F.cross_entropy(
-        predictions["bev_semantic_map"], targets["bev_semantic_map"].long()
-    )
-    loss = (
-        config.trajectory_weight * trajectory_loss
-        + config.agent_class_weight * agent_class_loss
-        + config.agent_box_weight * agent_box_loss
-        + config.bev_semantic_weight * bev_semantic_loss
-    )
+    bev_semantic_loss = F.cross_entropy(predictions["bev_semantic_map"],
+                                        targets["bev_semantic_map"].long())
+    loss = (config.trajectory_weight * trajectory_loss +
+            config.agent_class_weight * agent_class_loss +
+            config.agent_box_weight * agent_box_loss +
+            config.bev_semantic_weight * bev_semantic_loss)
     return loss
 
 
-def _agent_loss(
-    targets: Dict[str, torch.Tensor], predictions: Dict[str, torch.Tensor], config: TransfuserConfig
-):
+def _agent_loss(targets: Dict[str, torch.Tensor],
+                predictions: Dict[str, torch.Tensor], config: TransfuserConfig):
     """
     Hungarian matching loss for agent detection
     :param targets: dictionary of name tensor pairings
@@ -45,7 +42,8 @@ def _agent_loss(
     """
 
     gt_states, gt_valid = targets["agent_states"], targets["agent_labels"]
-    pred_states, pred_logits = predictions["agent_states"], predictions["agent_labels"]
+    pred_states, pred_logits = predictions["agent_states"], predictions[
+        "agent_labels"]
 
     if config.latent:
         rad_to_ego = torch.arctan2(
@@ -71,30 +69,33 @@ def _agent_loss(
     cost = cost.cpu()
 
     indices = [linear_sum_assignment(c) for i, c in enumerate(cost)]
-    matching = [
-        (torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64))
-        for i, j in indices
-    ]
+    matching = [(torch.as_tensor(i, dtype=torch.int64),
+                 torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
     idx = _get_src_permutation_idx(matching)
 
     pred_states_idx = pred_states[idx]
-    gt_states_idx = torch.cat([t[i] for t, (_, i) in zip(gt_states, indices)], dim=0)
+    gt_states_idx = torch.cat([t[i] for t, (_, i) in zip(gt_states, indices)],
+                              dim=0)
 
     pred_valid_idx = pred_logits[idx]
-    gt_valid_idx = torch.cat([t[i] for t, (_, i) in zip(gt_valid, indices)], dim=0).float()
+    gt_valid_idx = torch.cat([t[i] for t, (_, i) in zip(gt_valid, indices)],
+                             dim=0).float()
 
     l1_loss = F.l1_loss(pred_states_idx, gt_states_idx, reduction="none")
     l1_loss = l1_loss.sum(-1) * gt_valid_idx
     l1_loss = l1_loss.view(batch_dim, -1).sum() / num_gt_instances
 
-    ce_loss = F.binary_cross_entropy_with_logits(pred_valid_idx, gt_valid_idx, reduction="none")
+    ce_loss = F.binary_cross_entropy_with_logits(pred_valid_idx,
+                                                 gt_valid_idx,
+                                                 reduction="none")
     ce_loss = ce_loss.view(batch_dim, -1).mean()
 
     return ce_loss, l1_loss
 
 
 @torch.no_grad()
-def _get_ce_cost(gt_valid: torch.Tensor, pred_logits: torch.Tensor) -> torch.Tensor:
+def _get_ce_cost(gt_valid: torch.Tensor,
+                 pred_logits: torch.Tensor) -> torch.Tensor:
     """
     Function to calculate cross-entropy cost for cost matrix.
     :param gt_valid: tensor of binary ground-truth labels
@@ -109,18 +110,17 @@ def _get_ce_cost(gt_valid: torch.Tensor, pred_logits: torch.Tensor) -> torch.Ten
 
     max_val = torch.relu(-pred_logits_expanded)
     helper_term = max_val + torch.log(
-        torch.exp(-max_val) + torch.exp(-pred_logits_expanded - max_val)
-    )
-    ce_cost = (1 - gt_valid_expanded) * pred_logits_expanded + helper_term  # (b, n, n)
+        torch.exp(-max_val) + torch.exp(-pred_logits_expanded - max_val))
+    ce_cost = (
+        1 - gt_valid_expanded) * pred_logits_expanded + helper_term  # (b, n, n)
     ce_cost = ce_cost.permute(0, 2, 1)
 
     return ce_cost
 
 
 @torch.no_grad()
-def _get_l1_cost(
-    gt_states: torch.Tensor, pred_states: torch.Tensor, gt_valid: torch.Tensor
-) -> torch.Tensor:
+def _get_l1_cost(gt_states: torch.Tensor, pred_states: torch.Tensor,
+                 gt_valid: torch.Tensor) -> torch.Tensor:
     """
     Function to calculate L1 cost for cost matrix.
     :param gt_states: tensor of ground-truth bounding boxes
@@ -131,9 +131,8 @@ def _get_l1_cost(
 
     gt_states_expanded = gt_states[:, :, None, :2].detach()  # (b, n, 1, 2)
     pred_states_expanded = pred_states[:, None, :, :2].detach()  # (b, 1, n, 2)
-    l1_cost = gt_valid[..., None].float() * (gt_states_expanded - pred_states_expanded).abs().sum(
-        dim=-1
-    )
+    l1_cost = gt_valid[..., None].float() * (
+        gt_states_expanded - pred_states_expanded).abs().sum(dim=-1)
     l1_cost = l1_cost.permute(0, 2, 1)
     return l1_cost
 
@@ -145,6 +144,7 @@ def _get_src_permutation_idx(indices):
     :return: permuted indices
     """
     # permute predictions following indices
-    batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
+    batch_idx = torch.cat(
+        [torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
     src_idx = torch.cat([src for (src, _) in indices])
     return batch_idx, src_idx

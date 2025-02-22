@@ -45,12 +45,16 @@ class TransfuserAgent(AbstractAgent):
     def initialize(self) -> None:
         """Inherited, see superclass."""
         if torch.cuda.is_available():
-            state_dict: Dict[str, Any] = torch.load(self._checkpoint_path)["state_dict"]
+            state_dict: Dict[str, Any] = torch.load(
+                self._checkpoint_path)["state_dict"]
         else:
-            state_dict: Dict[str, Any] = torch.load(self._checkpoint_path, map_location=torch.device("cpu"))[
-                "state_dict"
-            ]
-        self.load_state_dict({k.replace("agent.", ""): v for k, v in state_dict.items()})
+            state_dict: Dict[str,
+                             Any] = torch.load(
+                                 self._checkpoint_path,
+                                 map_location=torch.device("cpu"))["state_dict"]
+        self.load_state_dict({
+            k.replace("agent.", ""): v for k, v in state_dict.items()
+        })
 
     def get_sensor_config(self) -> SensorConfig:
         """Inherited, see superclass."""
@@ -64,7 +68,8 @@ class TransfuserAgent(AbstractAgent):
         """Inherited, see superclass."""
         return [TransfuserFeatureBuilder(config=self._config)]
 
-    def forward(self, features: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(self, features: Dict[str,
+                                     torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Inherited, see superclass."""
         return self._transfuser_model(features)
 
@@ -77,9 +82,11 @@ class TransfuserAgent(AbstractAgent):
         """Inherited, see superclass."""
         return transfuser_loss(targets, predictions, self._config)
 
-    def get_optimizers(self) -> Union[Optimizer, Dict[str, Union[Optimizer, LRScheduler]]]:
+    def get_optimizers(
+            self) -> Union[Optimizer, Dict[str, Union[Optimizer, LRScheduler]]]:
         """Inherited, see superclass."""
-        return torch.optim.Adam(self._transfuser_model.parameters(), lr=self._lr)
+        return torch.optim.Adam(self._transfuser_model.parameters(),
+                                lr=self._lr)
 
     def get_training_callbacks(self) -> List[pl.Callback]:
         """Inherited, see superclass."""

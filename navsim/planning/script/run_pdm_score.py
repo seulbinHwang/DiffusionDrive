@@ -50,6 +50,9 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
     assert (
         simulator.proposal_sampling == scorer.proposal_sampling
     ), "Simulator and scorer proposal sampling has to be identical"
+    """
+navsim/planning/script/config/common/agent/diffusiondrive_agent.yaml 을 참고하여,
+    """
     agent: AbstractAgent = instantiate(cfg.agent)
     agent.initialize()
 

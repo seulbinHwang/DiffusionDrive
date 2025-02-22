@@ -22,13 +22,15 @@ class EgoStatusFeatureBuilder(AbstractFeatureBuilder):
         """Inherited, see superclass."""
         return "ego_status_feature"
 
-    def compute_features(self, agent_input: AgentInput) -> Dict[str, torch.Tensor]:
+    def compute_features(self,
+                         agent_input: AgentInput) -> Dict[str, torch.Tensor]:
         """Inherited, see superclass."""
         ego_status = agent_input.ego_statuses[-1]
         velocity = torch.tensor(ego_status.ego_velocity)
         acceleration = torch.tensor(ego_status.ego_acceleration)
         driving_command = torch.tensor(ego_status.driving_command)
-        ego_status_feature = torch.cat([velocity, acceleration, driving_command], dim=-1)
+        ego_status_feature = torch.cat(
+            [velocity, acceleration, driving_command], dim=-1)
         return {"ego_status": ego_status_feature}
 
 
@@ -49,7 +51,8 @@ class TrajectoryTargetBuilder(AbstractTargetBuilder):
 
     def compute_targets(self, scene: Scene) -> Dict[str, torch.Tensor]:
         """Inherited, see superclass."""
-        future_trajectory = scene.get_future_trajectory(num_trajectory_frames=self._trajectory_sampling.num_poses)
+        future_trajectory = scene.get_future_trajectory(
+            num_trajectory_frames=self._trajectory_sampling.num_poses)
         return {"trajectory": torch.tensor(future_trajectory.poses)}
 
 
@@ -83,7 +86,8 @@ class EgoStatusMLPAgent(AbstractAgent):
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_layer_dim, hidden_layer_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(hidden_layer_dim, self._trajectory_sampling.num_poses * 3),
+            torch.nn.Linear(hidden_layer_dim,
+                            self._trajectory_sampling.num_poses * 3),
         )
 
     def name(self) -> str:
@@ -93,12 +97,16 @@ class EgoStatusMLPAgent(AbstractAgent):
     def initialize(self) -> None:
         """Inherited, see superclass."""
         if torch.cuda.is_available():
-            state_dict: Dict[str, Any] = torch.load(self._checkpoint_path)["state_dict"]
+            state_dict: Dict[str, Any] = torch.load(
+                self._checkpoint_path)["state_dict"]
         else:
-            state_dict: Dict[str, Any] = torch.load(self._checkpoint_path, map_location=torch.device("cpu"))[
-                "state_dict"
-            ]
-        self.load_state_dict({k.replace("agent.", ""): v for k, v in state_dict.items()})
+            state_dict: Dict[str,
+                             Any] = torch.load(
+                                 self._checkpoint_path,
+                                 map_location=torch.device("cpu"))["state_dict"]
+        self.load_state_dict({
+            k.replace("agent.", ""): v for k, v in state_dict.items()
+        })
 
     def get_sensor_config(self) -> SensorConfig:
         """Inherited, see superclass."""
@@ -106,23 +114,32 @@ class EgoStatusMLPAgent(AbstractAgent):
 
     def get_target_builders(self) -> List[AbstractTargetBuilder]:
         """Inherited, see superclass."""
-        return [TrajectoryTargetBuilder(trajectory_sampling=self._trajectory_sampling)]
+        return [
+            TrajectoryTargetBuilder(
+                trajectory_sampling=self._trajectory_sampling)
+        ]
 
     def get_feature_builders(self) -> List[AbstractFeatureBuilder]:
         """Inherited, see superclass."""
         return [EgoStatusFeatureBuilder()]
 
-    def forward(self, features: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(self, features: Dict[str,
+                                     torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Inherited, see superclass."""
         poses: torch.Tensor = self._mlp(features["ego_status"])
-        return {"trajectory": poses.reshape(-1, self._trajectory_sampling.num_poses, 3)}
+        return {
+            "trajectory":
+                poses.reshape(-1, self._trajectory_sampling.num_poses, 3)
+        }
 
-    def compute_loss(
-        self, features: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor], predictions: Dict[str, torch.Tensor]
-    ) -> torch.Tensor:
+    def compute_loss(self, features: Dict[str, torch.Tensor],
+                     targets: Dict[str, torch.Tensor],
+                     predictions: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Inherited, see superclass."""
-        return torch.nn.functional.l1_loss(predictions["trajectory"], targets["trajectory"])
+        return torch.nn.functional.l1_loss(predictions["trajectory"],
+                                           targets["trajectory"])
 
-    def get_optimizers(self) -> Union[Optimizer, Dict[str, Union[Optimizer, LRScheduler]]]:
+    def get_optimizers(
+            self) -> Union[Optimizer, Dict[str, Union[Optimizer, LRScheduler]]]:
         """Inherited, see superclass."""
         return torch.optim.Adam(self._mlp.parameters(), lr=self._lr)

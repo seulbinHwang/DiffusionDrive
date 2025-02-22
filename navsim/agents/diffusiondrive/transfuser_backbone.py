@@ -21,11 +21,16 @@ class TransfuserBackbone(nn.Module):
         super().__init__()
         self.config = config
         try:
-            self.image_encoder = timm.create_model(config.image_architecture, pretrained=True, features_only=True)
+            self.image_encoder = timm.create_model(config.image_architecture,
+                                                   pretrained=True,
+                                                   features_only=True)
         except Exception as e:
             print(f"Failed to load image encoder with error: {e}")
-            self.image_encoder = timm.create_model(config.image_architecture, pretrained=True, features_only=True,
-                                                   pretrained_cfg_overlay=dict(file=config.bkb_path))
+            self.image_encoder = timm.create_model(
+                config.image_architecture,
+                pretrained=True,
+                features_only=True,
+                pretrained_cfg_overlay=dict(file=config.bkb_path))
         if config.use_ground_plane:
             in_channels = 2 * config.lidar_seq_len
         else:
@@ -34,12 +39,13 @@ class TransfuserBackbone(nn.Module):
         if config.latent:
             self.lidar_latent = nn.Parameter(
                 torch.randn(
-                    (1, in_channels, config.lidar_resolution_width, config.lidar_resolution_height),
+                    (1, in_channels, config.lidar_resolution_width,
+                     config.lidar_resolution_height),
                     requires_grad=True,
-                )
-            )
+                ))
 
-        self.avgpool_img = nn.AdaptiveAvgPool2d((self.config.img_vert_anchors, self.config.img_horz_anchors))
+        self.avgpool_img = nn.AdaptiveAvgPool2d(
+            (self.config.img_vert_anchors, self.config.img_horz_anchors))
 
         self.lidar_encoder = timm.create_model(
             config.lidar_architecture,
@@ -48,7 +54,8 @@ class TransfuserBackbone(nn.Module):
             features_only=True,
         )
         self.global_pool_lidar = nn.AdaptiveAvgPool2d(output_size=1)
-        self.avgpool_lidar = nn.AdaptiveAvgPool2d((self.config.lidar_vert_anchors, self.config.lidar_horz_anchors))
+        self.avgpool_lidar = nn.AdaptiveAvgPool2d(
+            (self.config.lidar_vert_anchors, self.config.lidar_horz_anchors))
         lidar_time_frames = [1, 1, 1, 1]
 
         self.global_pool_img = nn.AdaptiveAvgPool2d(output_size=1)
@@ -57,61 +64,62 @@ class TransfuserBackbone(nn.Module):
         if len(self.image_encoder.return_layers) > 4:
             start_index += 1
 
-        self.transformers = nn.ModuleList(
-            [
-                GPT(
-                    n_embd=self.image_encoder.feature_info.info[start_index + i]["num_chs"],
-                    config=config,
-                    # lidar_video=self.lidar_video,
-                    lidar_time_frames=lidar_time_frames[i],
-                )
-                for i in range(4)
-            ]
-        )
-        self.lidar_channel_to_img = nn.ModuleList(
-            [
-                nn.Conv2d(
-                    self.lidar_encoder.feature_info.info[start_index + i]["num_chs"],
-                    self.image_encoder.feature_info.info[start_index + i]["num_chs"],
-                    kernel_size=1,
-                )
-                for i in range(4)
-            ]
-        )
-        self.img_channel_to_lidar = nn.ModuleList(
-            [
-                nn.Conv2d(
-                    self.image_encoder.feature_info.info[start_index + i]["num_chs"],
-                    self.lidar_encoder.feature_info.info[start_index + i]["num_chs"],
-                    kernel_size=1,
-                )
-                for i in range(4)
-            ]
-        )
+        self.transformers = nn.ModuleList([
+            GPT(
+                n_embd=self.image_encoder.feature_info.info[start_index +
+                                                            i]["num_chs"],
+                config=config,
+                # lidar_video=self.lidar_video,
+                lidar_time_frames=lidar_time_frames[i],
+            ) for i in range(4)
+        ])
+        self.lidar_channel_to_img = nn.ModuleList([
+            nn.Conv2d(
+                self.lidar_encoder.feature_info.info[start_index +
+                                                     i]["num_chs"],
+                self.image_encoder.feature_info.info[start_index +
+                                                     i]["num_chs"],
+                kernel_size=1,
+            ) for i in range(4)
+        ])
+        self.img_channel_to_lidar = nn.ModuleList([
+            nn.Conv2d(
+                self.image_encoder.feature_info.info[start_index +
+                                                     i]["num_chs"],
+                self.lidar_encoder.feature_info.info[start_index +
+                                                     i]["num_chs"],
+                kernel_size=1,
+            ) for i in range(4)
+        ])
 
-        self.num_image_features = self.image_encoder.feature_info.info[start_index + 3]["num_chs"]
+        self.num_image_features = self.image_encoder.feature_info.info[
+            start_index + 3]["num_chs"]
         # Typical encoders down-sample by a factor of 32
         self.perspective_upsample_factor = (
             self.image_encoder.feature_info.info[start_index + 3]["reduction"]
-            // self.config.perspective_downsample_factor
-        )
+            // self.config.perspective_downsample_factor)
 
         if self.config.transformer_decoder_join:
-            self.num_features = self.lidar_encoder.feature_info.info[start_index + 3]["num_chs"]
+            self.num_features = self.lidar_encoder.feature_info.info[
+                start_index + 3]["num_chs"]
         else:
             if self.config.add_features:
                 self.lidar_to_img_features_end = nn.Linear(
-                    self.lidar_encoder.feature_info.info[start_index + 3]["num_chs"],
-                    self.image_encoder.feature_info.info[start_index + 3]["num_chs"],
+                    self.lidar_encoder.feature_info.info[start_index +
+                                                         3]["num_chs"],
+                    self.image_encoder.feature_info.info[start_index +
+                                                         3]["num_chs"],
                 )
                 # Number of features the encoder produces.
-                self.num_features = self.image_encoder.feature_info.info[start_index + 3]["num_chs"]
+                self.num_features = self.image_encoder.feature_info.info[
+                    start_index + 3]["num_chs"]
             else:
                 # Number of features the encoder produces.
                 self.num_features = (
-                    self.image_encoder.feature_info.info[start_index + 3]["num_chs"]
-                    + self.lidar_encoder.feature_info.info[start_index + 3]["num_chs"]
-                )
+                    self.image_encoder.feature_info.info[start_index +
+                                                         3]["num_chs"] +
+                    self.lidar_encoder.feature_info.info[start_index +
+                                                         3]["num_chs"])
 
         # FPN fusion
         channel = self.config.bev_features_channels
@@ -119,12 +127,15 @@ class TransfuserBackbone(nn.Module):
         # top down
         if self.config.detect_boxes or self.config.use_bev_semantic:
             self.upsample = nn.Upsample(
-                scale_factor=self.config.bev_upsample_factor, mode="bilinear", align_corners=False
-            )
+                scale_factor=self.config.bev_upsample_factor,
+                mode="bilinear",
+                align_corners=False)
             self.upsample2 = nn.Upsample(
                 size=(
-                    self.config.lidar_resolution_height // self.config.bev_down_sample_factor,
-                    self.config.lidar_resolution_width // self.config.bev_down_sample_factor,
+                    self.config.lidar_resolution_height //
+                    self.config.bev_down_sample_factor,
+                    self.config.lidar_resolution_width //
+                    self.config.bev_down_sample_factor,
                 ),
                 mode="bilinear",
                 align_corners=False,
@@ -134,7 +145,10 @@ class TransfuserBackbone(nn.Module):
             self.up_conv4 = nn.Conv2d(channel, channel, (3, 3), padding=1)
 
             # lateral
-            self.c5_conv = nn.Conv2d(self.lidar_encoder.feature_info.info[start_index + 3]["num_chs"], channel, (1, 1))
+            self.c5_conv = nn.Conv2d(
+                self.lidar_encoder.feature_info.info[start_index +
+                                                     3]["num_chs"], channel,
+                (1, 1))
 
     def top_down(self, x):
 
@@ -164,16 +178,21 @@ class TransfuserBackbone(nn.Module):
         # Stem layer.
         # In some architectures the stem is not a return layer, so we need to skip it.
         if len(self.image_encoder.return_layers) > 4:
-            image_features = self.forward_layer_block(image_layers, self.image_encoder.return_layers, image_features)
+            image_features = self.forward_layer_block(
+                image_layers, self.image_encoder.return_layers, image_features)
         if len(self.lidar_encoder.return_layers) > 4:
-            lidar_features = self.forward_layer_block(lidar_layers, self.lidar_encoder.return_layers, lidar_features)
+            lidar_features = self.forward_layer_block(
+                lidar_layers, self.lidar_encoder.return_layers, lidar_features)
 
         # Loop through the 4 blocks of the network.
         for i in range(4):
-            image_features = self.forward_layer_block(image_layers, self.image_encoder.return_layers, image_features)
-            lidar_features = self.forward_layer_block(lidar_layers, self.lidar_encoder.return_layers, lidar_features)
+            image_features = self.forward_layer_block(
+                image_layers, self.image_encoder.return_layers, image_features)
+            lidar_features = self.forward_layer_block(
+                lidar_layers, self.lidar_encoder.return_layers, lidar_features)
 
-            image_features, lidar_features = self.fuse_features(image_features, lidar_features, i)
+            image_features, lidar_features = self.fuse_features(
+                image_features, lidar_features, i)
 
         if self.config.detect_boxes or self.config.use_bev_semantic:
             x4 = lidar_features
@@ -194,7 +213,8 @@ class TransfuserBackbone(nn.Module):
                 lidar_features = self.lidar_to_img_features_end(lidar_features)
                 fused_features = image_features + lidar_features
             else:
-                fused_features = torch.cat((image_features, lidar_features), dim=1)
+                fused_features = torch.cat((image_features, lidar_features),
+                                           dim=1)
 
         if self.config.detect_boxes or self.config.use_bev_semantic:
             features = self.top_down(x4)
@@ -229,10 +249,13 @@ class TransfuserBackbone(nn.Module):
         image_embd_layer = self.avgpool_img(image_features)
         lidar_embd_layer = self.avgpool_lidar(lidar_features)
 
-        lidar_embd_layer = self.lidar_channel_to_img[layer_idx](lidar_embd_layer)
+        lidar_embd_layer = self.lidar_channel_to_img[layer_idx](
+            lidar_embd_layer)
 
-        image_features_layer, lidar_features_layer = self.transformers[layer_idx](image_embd_layer, lidar_embd_layer)
-        lidar_features_layer = self.img_channel_to_lidar[layer_idx](lidar_features_layer)
+        image_features_layer, lidar_features_layer = self.transformers[
+            layer_idx](image_embd_layer, lidar_embd_layer)
+        lidar_features_layer = self.img_channel_to_lidar[layer_idx](
+            lidar_features_layer)
 
         image_features_layer = F.interpolate(
             image_features_layer,
@@ -270,21 +293,19 @@ class GPT(nn.Module):
         self.pos_emb = nn.Parameter(
             torch.zeros(
                 1,
-                self.seq_len * self.config.img_vert_anchors * self.config.img_horz_anchors
-                + lidar_time_frames * self.config.lidar_vert_anchors * self.config.lidar_horz_anchors,
+                self.seq_len * self.config.img_vert_anchors *
+                self.config.img_horz_anchors + lidar_time_frames *
+                self.config.lidar_vert_anchors * self.config.lidar_horz_anchors,
                 self.n_embd,
-            )
-        )
+            ))
 
         self.drop = nn.Dropout(config.embd_pdrop)
 
         # transformer
-        self.blocks = nn.Sequential(
-            *[
-                Block(n_embd, config.n_head, config.block_exp, config.attn_pdrop, config.resid_pdrop)
-                for layer in range(config.n_layer)
-            ]
-        )
+        self.blocks = nn.Sequential(*[
+            Block(n_embd, config.n_head, config.block_exp, config.attn_pdrop,
+                  config.resid_pdrop) for layer in range(config.n_layer)
+        ])
 
         # decoder head
         self.ln_f = nn.LayerNorm(n_embd)
@@ -316,8 +337,10 @@ class GPT(nn.Module):
         img_h, img_w = image_tensor.shape[2:4]
 
         assert self.seq_len == 1
-        image_tensor = image_tensor.permute(0, 2, 3, 1).contiguous().view(bz, -1, self.n_embd)
-        lidar_tensor = lidar_tensor.permute(0, 2, 3, 1).contiguous().view(bz, -1, self.n_embd)
+        image_tensor = image_tensor.permute(0, 2, 3, 1).contiguous().view(
+            bz, -1, self.n_embd)
+        lidar_tensor = lidar_tensor.permute(0, 2, 3, 1).contiguous().view(
+            bz, -1, self.n_embd)
 
         token_embeddings = torch.cat((image_tensor, lidar_tensor), dim=1)
 
@@ -325,22 +348,16 @@ class GPT(nn.Module):
         x = self.blocks(x)  # (B, an * T, C)
         x = self.ln_f(x)  # (B, an * T, C)
 
-        image_tensor_out = (
-            x[:, : self.seq_len * self.config.img_vert_anchors * self.config.img_horz_anchors, :]
-            .view(bz * self.seq_len, img_h, img_w, -1)
-            .permute(0, 3, 1, 2)
-            .contiguous()
-        )
-        lidar_tensor_out = (
-            x[
-                :,
-                self.seq_len * self.config.img_vert_anchors * self.config.img_horz_anchors :,
-                :,
-            ]
-            .view(bz, lidar_h, lidar_w, -1)
-            .permute(0, 3, 1, 2)
-            .contiguous()
-        )
+        image_tensor_out = (x[:, :self.seq_len * self.config.img_vert_anchors *
+                              self.config.img_horz_anchors, :].view(
+                                  bz * self.seq_len, img_h, img_w,
+                                  -1).permute(0, 3, 1, 2).contiguous())
+        lidar_tensor_out = (x[
+            :,
+            self.seq_len * self.config.img_vert_anchors *
+            self.config.img_horz_anchors:,
+            :,
+        ].view(bz, lidar_h, lidar_w, -1).permute(0, 3, 1, 2).contiguous())
 
         return image_tensor_out, lidar_tensor_out
 
@@ -370,16 +387,22 @@ class SelfAttention(nn.Module):
 
         # calculate query, key, values for all heads in batch and move head
         # forward to be the batch dim
-        k = self.key(x).view(b, t, self.n_head, c // self.n_head).transpose(1, 2)  # (b, nh, t, hs)
-        q = self.query(x).view(b, t, self.n_head, c // self.n_head).transpose(1, 2)  # (b, nh, t, hs)
-        v = self.value(x).view(b, t, self.n_head, c // self.n_head).transpose(1, 2)  # (b, nh, t, hs)
+        k = self.key(x).view(b, t, self.n_head,
+                             c // self.n_head).transpose(1, 2)  # (b, nh, t, hs)
+        q = self.query(x).view(b, t, self.n_head,
+                               c // self.n_head).transpose(1,
+                                                           2)  # (b, nh, t, hs)
+        v = self.value(x).view(b, t, self.n_head,
+                               c // self.n_head).transpose(1,
+                                                           2)  # (b, nh, t, hs)
 
         # self-attend: (b, nh, t, hs) x (b, nh, hs, t) -> (b, nh, t, t)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         att = F.softmax(att, dim=-1)
         att = self.attn_drop(att)
         y = att @ v  # (b, nh, t, t) x (b, nh, t, hs) -> (b, nh, t, hs)
-        y = y.transpose(1, 2).contiguous().view(b, t, c)  # re-assemble all head outputs side by side
+        y = y.transpose(1, 2).contiguous().view(
+            b, t, c)  # re-assemble all head outputs side by side
 
         # output projection
         y = self.resid_drop(self.proj(y))
@@ -433,16 +456,23 @@ class MultiheadAttentionWithAttention(nn.Module):
 
         # calculate query, key, values for all heads in batch and move head
         # forward to be the batch dim
-        q = self.query(q_in).view(b, t, self.n_head, c // self.n_head).transpose(1, 2)  # (b, nh, t, hs)
-        k = self.key(k_in).view(b, t_mem, self.n_head, c // self.n_head).transpose(1, 2)  # (b, nh, t, hs)
-        v = self.value(v_in).view(b, t_mem, self.n_head, c // self.n_head).transpose(1, 2)  # (b, nh, t, hs)
+        q = self.query(q_in).view(b, t,
+                                  self.n_head, c // self.n_head).transpose(
+                                      1, 2)  # (b, nh, t, hs)
+        k = self.key(k_in).view(b, t_mem, self.n_head,
+                                c // self.n_head).transpose(1,
+                                                            2)  # (b, nh, t, hs)
+        v = self.value(v_in).view(b, t_mem,
+                                  self.n_head, c // self.n_head).transpose(
+                                      1, 2)  # (b, nh, t, hs)
 
         # self-attend: (b, nh, t, hs) x (b, nh, hs, t) -> (b, nh, t, t)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         att = F.softmax(att, dim=-1)
         att = self.attn_drop(att)
         y = att @ v  # (b, nh, t, t) x (b, nh, t, hs) -> (b, nh, t, hs)
-        y = y.transpose(1, 2).contiguous().view(b, t, c)  # re-assemble all head outputs side by side
+        y = y.transpose(1, 2).contiguous().view(
+            b, t, c)  # re-assemble all head outputs side by side
 
         # output projection
         y = self.resid_drop(self.proj(y))
@@ -463,8 +493,10 @@ class TransformerDecoderLayerWithAttention(nn.Module):
         layer_norm_eps=1e-5,
     ):
         super().__init__()
-        self.self_attn = MultiheadAttentionWithAttention(d_model, nhead, dropout)
-        self.multihead_attn = MultiheadAttentionWithAttention(d_model, nhead, dropout)
+        self.self_attn = MultiheadAttentionWithAttention(
+            d_model, nhead, dropout)
+        self.multihead_attn = MultiheadAttentionWithAttention(
+            d_model, nhead, dropout)
         self.linear1 = nn.Linear(d_model, dim_feedforward)
         self.dropout = nn.Dropout(dropout)
         self.linear2 = nn.Linear(dim_feedforward, d_model)
@@ -495,7 +527,8 @@ class TransformerDecoderWithAttention(nn.Module):
 
     def __init__(self, layers, num_layers, norm=None):
         super().__init__()
-        self.layers = nn.ModuleList([copy.deepcopy(layers) for i in range(num_layers)])
+        self.layers = nn.ModuleList(
+            [copy.deepcopy(layers) for i in range(num_layers)])
         self.num_layers = num_layers
         self.norm = norm
 

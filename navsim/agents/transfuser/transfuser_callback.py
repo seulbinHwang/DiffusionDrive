@@ -42,16 +42,20 @@ class TransfuserCallback(pl.Callback):
         self._num_rows = num_rows
         self._num_columns = num_columns
 
-    def on_validation_epoch_start(self, trainer: pl.Trainer, lightning_module: pl.LightningModule) -> None:
+    def on_validation_epoch_start(self, trainer: pl.Trainer,
+                                  lightning_module: pl.LightningModule) -> None:
         """Inherited, see superclass."""
         pass
 
-    def on_validation_epoch_end(self, trainer: pl.Trainer, lightning_module: pl.LightningModule) -> None:
+    def on_validation_epoch_end(self, trainer: pl.Trainer,
+                                lightning_module: pl.LightningModule) -> None:
         """Inherited, see superclass."""
         device = lightning_module.device
         for idx_plot in range(self._num_plots):
             features, targets = next(iter(trainer.val_dataloaders))
-            features, targets = dict_to_device(features, device), dict_to_device(targets, device)
+            features, targets = dict_to_device(features,
+                                               device), dict_to_device(
+                                                   targets, device)
             with torch.no_grad():
                 predictions = lightning_module.agent.forward(features)
 
@@ -61,29 +65,36 @@ class TransfuserCallback(pl.Callback):
                 dict_to_device(predictions, "cpu"),
             )
             grid = self._visualize_model(features, targets, predictions)
-            trainer.logger.experiment.add_image(f"val_plot_{idx_plot}", grid, global_step=trainer.current_epoch)
+            trainer.logger.experiment.add_image(
+                f"val_plot_{idx_plot}", grid, global_step=trainer.current_epoch)
 
-    def on_test_epoch_start(self, trainer: pl.Trainer, lightning_module: pl.LightningModule) -> None:
+    def on_test_epoch_start(self, trainer: pl.Trainer,
+                            lightning_module: pl.LightningModule) -> None:
         """Inherited, see superclass."""
         pass
 
-    def on_test_epoch_end(self, trainer: pl.Trainer, lightning_module: pl.LightningModule) -> None:
+    def on_test_epoch_end(self, trainer: pl.Trainer,
+                          lightning_module: pl.LightningModule) -> None:
         """Inherited, see superclass."""
         pass
 
-    def on_train_epoch_start(self, trainer: pl.Trainer, lightning_module: pl.LightningModule) -> None:
+    def on_train_epoch_start(self, trainer: pl.Trainer,
+                             lightning_module: pl.LightningModule) -> None:
         """Inherited, see superclass."""
         pass
 
-    def on_train_epoch_end(
-        self, trainer: pl.Trainer, lightning_module: pl.LightningModule, unused: Optional[Any] = None
-    ) -> None:
+    def on_train_epoch_end(self,
+                           trainer: pl.Trainer,
+                           lightning_module: pl.LightningModule,
+                           unused: Optional[Any] = None) -> None:
         """Inherited, see superclass."""
 
         device = lightning_module.device
         for idx_plot in range(self._num_plots):
             features, targets = next(iter(trainer.train_dataloader))
-            features, targets = dict_to_device(features, device), dict_to_device(targets, device)
+            features, targets = dict_to_device(features,
+                                               device), dict_to_device(
+                                                   targets, device)
             with torch.no_grad():
                 predictions = lightning_module.agent.forward(features)
 
@@ -93,7 +104,10 @@ class TransfuserCallback(pl.Callback):
                 dict_to_device(predictions, "cpu"),
             )
             grid = self._visualize_model(features, targets, predictions)
-            trainer.logger.experiment.add_image(f"train_plot_{idx_plot}", grid, global_step=trainer.current_epoch)
+            trainer.logger.experiment.add_image(
+                f"train_plot_{idx_plot}",
+                grid,
+                global_step=trainer.current_epoch)
 
     def _visualize_model(
         self,
@@ -123,13 +137,17 @@ class TransfuserCallback(pl.Callback):
         plots = []
         for sample_idx in range(self._num_rows * self._num_columns):
             plot = np.zeros((256, 768, 3), dtype=np.uint8)
-            plot[:128, :512] = (camera[sample_idx] * 255).astype(np.uint8)[::2, ::2]
+            plot[:128, :512] = (camera[sample_idx] * 255).astype(
+                np.uint8)[::2, ::2]
 
-            plot[128:, :256] = semantic_map_to_rgb(bev[sample_idx], self._config)
-            plot[128:, 256:512] = semantic_map_to_rgb(pred_bev[sample_idx], self._config)
+            plot[128:, :256] = semantic_map_to_rgb(bev[sample_idx],
+                                                   self._config)
+            plot[128:, 256:512] = semantic_map_to_rgb(pred_bev[sample_idx],
+                                                      self._config)
 
             agent_states_ = agent_states[sample_idx][agent_labels[sample_idx]]
-            pred_agent_states_ = pred_agent_states[sample_idx][pred_agent_labels[sample_idx] > 0.5]
+            pred_agent_states_ = pred_agent_states[sample_idx][
+                pred_agent_labels[sample_idx] > 0.5]
             plot[:, 512:] = lidar_map_to_rgb(
                 lidar_map[sample_idx],
                 agent_states_,
@@ -144,7 +162,8 @@ class TransfuserCallback(pl.Callback):
         return vutils.make_grid(plots, normalize=False, nrow=self._num_rows)
 
 
-def dict_to_device(dict: Dict[str, torch.Tensor], device: Union[torch.device, str]) -> Dict[str, torch.Tensor]:
+def dict_to_device(dict: Dict[str, torch.Tensor],
+                   device: Union[torch.device, str]) -> Dict[str, torch.Tensor]:
     """
     Helper function to move tensors from dictionary to device.
     :param dict: dictionary of names and tensors
@@ -156,7 +175,8 @@ def dict_to_device(dict: Dict[str, torch.Tensor], device: Union[torch.device, st
     return dict
 
 
-def semantic_map_to_rgb(semantic_map: npt.NDArray[np.int64], config: TransfuserConfig) -> npt.NDArray[np.uint8]:
+def semantic_map_to_rgb(semantic_map: npt.NDArray[np.int64],
+                        config: TransfuserConfig) -> npt.NDArray[np.uint8]:
     """
     Convert semantic map to RGB image.
     :param semantic_map: numpy array of segmentation map (multi-channel)
@@ -170,14 +190,14 @@ def semantic_map_to_rgb(semantic_map: npt.NDArray[np.int64], config: TransfuserC
     for label in range(1, config.num_bev_classes):
 
         if config.bev_semantic_classes[label][0] == "linestring":
-            hex_color = MAP_LAYER_CONFIG[SemanticMapLayer.BASELINE_PATHS]["line_color"]
+            hex_color = MAP_LAYER_CONFIG[
+                SemanticMapLayer.BASELINE_PATHS]["line_color"]
         else:
-            layer = config.bev_semantic_classes[label][-1][0]  # take color of first element
-            hex_color = (
-                AGENT_CONFIG[layer]["fill_color"]
-                if layer in AGENT_CONFIG.keys()
-                else MAP_LAYER_CONFIG[layer]["fill_color"]
-            )
+            layer = config.bev_semantic_classes[label][-1][
+                0]  # take color of first element
+            hex_color = (AGENT_CONFIG[layer]["fill_color"]
+                         if layer in AGENT_CONFIG.keys() else
+                         MAP_LAYER_CONFIG[layer]["fill_color"])
 
         rgb_map[semantic_map == label] = ImageColor.getcolor(hex_color, "RGB")
     return rgb_map[::-1, ::-1]
@@ -215,7 +235,8 @@ def lidar_map_to_rgb(
     rgb_map = (lidar_map * 255).astype(np.uint8)
     rgb_map = 255 - rgb_map[..., None].repeat(3, axis=-1)
 
-    for color, agent_state_array in zip([gt_color, pred_color], [agent_states, pred_agent_states]):
+    for color, agent_state_array in zip([gt_color, pred_color],
+                                        [agent_states, pred_agent_states]):
         for agent_state in agent_state_array:
             agent_box = OrientedBox(
                 StateSE2(*agent_state[BoundingBox2DIndex.STATE_SE2]),
@@ -223,14 +244,20 @@ def lidar_map_to_rgb(
                 agent_state[BoundingBox2DIndex.WIDTH],
                 1.0,
             )
-            exterior = np.array(agent_box.geometry.exterior.coords).reshape((-1, 1, 2))
+            exterior = np.array(agent_box.geometry.exterior.coords).reshape(
+                (-1, 1, 2))
             exterior = coords_to_pixel(exterior)
             exterior = np.flip(exterior, axis=-1)
-            cv2.polylines(rgb_map, [exterior], isClosed=True, color=color, thickness=2)
+            cv2.polylines(rgb_map, [exterior],
+                          isClosed=True,
+                          color=color,
+                          thickness=2)
 
-    for color, traj in zip([gt_color, pred_color], [trajectory, pred_trajectory]):
+    for color, traj in zip([gt_color, pred_color],
+                           [trajectory, pred_trajectory]):
         trajectory_indices = coords_to_pixel(traj[:, :2])
         for x, y in trajectory_indices:
-            cv2.circle(rgb_map, (y, x), point_size, color, -1)  # -1 fills the circle
+            cv2.circle(rgb_map, (y, x), point_size, color,
+                       -1)  # -1 fills the circle
 
     return rgb_map[::-1, ::-1]

@@ -11,7 +11,8 @@ from nuplan.planning.simulation.trajectory.trajectory_sampling import Trajectory
 class TransfuserConfig:
     """Global TransFuser config."""
 
-    trajectory_sampling: TrajectorySampling = TrajectorySampling(time_horizon=4, interval_length=0.5)
+    trajectory_sampling: TrajectorySampling = TrajectorySampling(
+        time_horizon=4, interval_length=0.5)
 
     image_architecture: str = "resnet34"
     lidar_architecture: str = "resnet34"
@@ -84,9 +85,12 @@ class TransfuserConfig:
 
     # BEV mapping
     bev_semantic_classes = {
-        1: ("polygon", [SemanticMapLayer.LANE, SemanticMapLayer.INTERSECTION]),  # road
+        1: ("polygon", [SemanticMapLayer.LANE,
+                        SemanticMapLayer.INTERSECTION]),  # road
         2: ("polygon", [SemanticMapLayer.WALKWAYS]),  # walkways
-        3: ("linestring", [SemanticMapLayer.LANE, SemanticMapLayer.LANE_CONNECTOR]),  # centerline
+        3: ("linestring",
+            [SemanticMapLayer.LANE,
+             SemanticMapLayer.LANE_CONNECTOR]),  # centerline
         4: (
             "box",
             [
@@ -115,5 +119,8 @@ class TransfuserConfig:
 
     @property
     def bev_radius(self) -> float:
-        values = [self.lidar_min_x, self.lidar_max_x, self.lidar_min_y, self.lidar_max_y]
+        values = [
+            self.lidar_min_x, self.lidar_max_x, self.lidar_min_y,
+            self.lidar_max_y
+        ]
         return max([abs(value) for value in values])

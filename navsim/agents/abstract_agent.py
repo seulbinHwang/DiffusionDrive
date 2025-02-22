@@ -39,7 +39,8 @@ class AbstractAgent(torch.nn.Module, ABC):
         """
         pass
 
-    def forward(self, features: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(self, features: Dict[str,
+                                     torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
         Forward pass of the agent.
         :param features: Dictionary of features.
@@ -51,13 +52,15 @@ class AbstractAgent(torch.nn.Module, ABC):
         """
         :return: List of target builders.
         """
-        raise NotImplementedError("No feature builders. Agent does not support training.")
+        raise NotImplementedError(
+            "No feature builders. Agent does not support training.")
 
     def get_target_builders(self) -> List[AbstractTargetBuilder]:
         """
         :return: List of feature builders.
         """
-        raise NotImplementedError("No target builders. Agent does not support training.")
+        raise NotImplementedError(
+            "No target builders. Agent does not support training.")
 
     def compute_trajectory(self, agent_input: AgentInput) -> Trajectory:
         """
@@ -95,12 +98,14 @@ class AbstractAgent(torch.nn.Module, ABC):
 
     def get_optimizers(
         self,
-    ) -> Union[torch.optim.Optimizer, Dict[str, Union[torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]]]:
+    ) -> Union[torch.optim.Optimizer, Dict[str, Union[
+            torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]]]:
         """
         Returns the optimizers that are used by thy pytorch-lightning trainer.
         Has to be either a single optimizer or a dict of optimizer and lr scheduler.
         """
-        raise NotImplementedError("No optimizers. Agent does not support training.")
+        raise NotImplementedError(
+            "No optimizers. Agent does not support training.")
 
     def get_training_callbacks(self) -> List[pl.Callback]:
         """

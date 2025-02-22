@@ -8,6 +8,7 @@ from navsim.agents.diffusiondrive.transfuser_config import TransfuserConfig
 # from mmcv.ops import sigmoid_focal_loss as _sigmoid_focal_loss
 # from mmdet.models.losses import FocalLoss
 
+
 def reduce_loss(loss: Tensor, reduction: str) -> Tensor:
     """Reduce loss as specified.
 
@@ -26,6 +27,7 @@ def reduce_loss(loss: Tensor, reduction: str) -> Tensor:
         return loss.mean()
     elif reduction_enum == 2:
         return loss.sum()
+
 
 def weight_reduce_loss(loss: Tensor,
                        weight: Optional[Tensor] = None,
@@ -64,6 +66,7 @@ def weight_reduce_loss(loss: Tensor,
             raise ValueError('avg_factor can not be used with reduction="sum"')
     return loss
 
+
 def py_sigmoid_focal_loss(pred,
                           target,
                           weight=None,
@@ -92,10 +95,9 @@ def py_sigmoid_focal_loss(pred,
     # Actually, pt here denotes (1 - pt) in the Focal Loss paper
     pt = (1 - pred_sigmoid) * target + pred_sigmoid * (1 - target)
     # Thus it's pt.pow(gamma) rather than (1 - pt).pow(gamma)
-    focal_weight = (alpha * target + (1 - alpha) *
-                    (1 - target)) * pt.pow(gamma)
-    loss = F.binary_cross_entropy_with_logits(
-        pred, target, reduction='none') * focal_weight
+    focal_weight = (alpha * target + (1 - alpha) * (1 - target)) * pt.pow(gamma)
+    loss = F.binary_cross_entropy_with_logits(pred, target,
+                                              reduction='none') * focal_weight
     if weight is not None:
         if weight.shape != loss.shape:
             if weight.size(0) == loss.size(0):
@@ -115,12 +117,14 @@ def py_sigmoid_focal_loss(pred,
 
 
 class LossComputer(nn.Module):
-    def __init__(self,config: TransfuserConfig):
+
+    def __init__(self, config: TransfuserConfig):
         self._config = config
         super(LossComputer, self).__init__()
         # self.focal_loss = FocalLoss(use_sigmoid=True, gamma=2.0, alpha=0.25, reduction='mean', loss_weight=1.0, activated=False)
         self.cls_loss_weight = config.trajectory_cls_weight
         self.reg_loss_weight = config.trajectory_reg_weight
+
     def forward(self, poses_reg, poses_cls, targets, plan_anchor):
         """
         pred_traj: (bs, 20, 8, 3)
@@ -130,11 +134,13 @@ class LossComputer(nn.Module):
         """
         bs, num_mode, ts, d = poses_reg.shape
         target_traj = targets["trajectory"]
-        dist = torch.linalg.norm(target_traj.unsqueeze(1)[...,:2] - plan_anchor, dim=-1)
+        dist = torch.linalg.norm(target_traj.unsqueeze(1)[..., :2] -
+                                 plan_anchor,
+                                 dim=-1)
         dist = dist.mean(dim=-1)
         mode_idx = torch.argmin(dist, dim=-1)
         cls_target = mode_idx
-        mode_idx = mode_idx[...,None,None,None].repeat(1,1,ts,d)
+        mode_idx = mode_idx[..., None, None, None].repeat(1, 1, ts, d)
         best_reg = torch.gather(poses_reg, 1, mode_idx).squeeze(1)
         # import ipdb; ipdb.set_trace()
         # Calculate cls loss using focal loss
@@ -152,8 +158,7 @@ class LossComputer(nn.Module):
             gamma=2.0,
             alpha=0.25,
             reduction='mean',
-            avg_factor=None
-        )
+            avg_factor=None)
 
         # Calculate regression loss
         reg_loss = self.reg_loss_weight * F.l1_loss(best_reg, target_traj)
