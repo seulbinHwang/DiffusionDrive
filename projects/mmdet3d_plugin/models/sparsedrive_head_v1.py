@@ -70,6 +70,22 @@ class V1SparseDriveHead(BaseModule):
 
     def loss(self, model_outs, data):
         det_output, map_output, motion_output, planning_output = model_outs
+        """
+        motion_output
+            - "classification" : (b, 900, 6)
+            - "prediction" : (b, 900, 6, 12, 2)
+            - "period" : (b, 900)
+            - "anchor_queue" : (b, 900, 11)
+        planning_output
+            - "classification" : (b, 1, 18)
+            - "prediction" : (b, 1, 18, 6, 2)
+            - "status" : (b, 1, 10)
+            - "period" : (b, 11)
+            -  "anchor_queue" : (b, 1, 11)
+            - "diffusion_prediction" : List of (b, 1, 18, 6, 2) # len = 1
+            - "diffusion_classification" : List of (b, 1, 18) # len = 1
+            - "tgt_cmd_plan_anchor": (b, 6, 6, 2)
+        """
         losses = dict()
         if self.task_config['with_det']:
             loss_det = self.det_head.loss(det_output, data)

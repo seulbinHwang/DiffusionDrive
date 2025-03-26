@@ -870,6 +870,8 @@ class V13MotionPlanningHead(BaseModule):
                 # import ipdb;ipdb.set_trace()
                 diff_plan_reg, diff_plan_cls = self.diff_layers[i](
                     traj_feature,)
+                # diff_plan_reg: (b, 1, 3*6, 6, 2)
+                # diff_plan_cls: (b, 1, 3*6)
                 diff_planning_prediction.append(diff_plan_reg)
                 diff_planning_classification.append(diff_plan_cls)
         planning_output["diffusion_prediction"] = diff_planning_prediction
@@ -1472,20 +1474,31 @@ class V13MotionPlanningHead(BaseModule):
 
     @force_fp32(apply_to=("model_outs"))
     def loss_motion(self, model_outs, data, motion_loss_cache):
-        cls_scores = model_outs["classification"]
-        reg_preds = model_outs["prediction"]
+        """
+        model_outs
+            - "classification" : (b, 900, 6)
+            - "prediction" : (b, 900, 6, 12, 2)
+            - "period" : (b, 900)
+            - "anchor_queue" : (b, 900, 11)
+        """
+        cls_scores = model_outs["classification"] # (b, 900, 6)
+        reg_preds = model_outs["prediction"] # (b, 900, 6, 12, 2)
         output = {}
         for decoder_idx, (cls, reg) in enumerate(zip(cls_scores, reg_preds)):
+            """
+            cls: (900, 6)
+            reg: (900, 6, 12, 2)
+            """
             (cls_target, cls_weight, reg_pred, reg_target, reg_weight,
              num_pos) = self.motion_sampler.sample(
-                 reg,
+                 reg, # (900, 6, 12, 2)
                  data["gt_agent_fut_trajs"],
                  data["gt_agent_fut_masks"],
                  motion_loss_cache,
              )
             num_pos = max(reduce_mean(num_pos), 1.0)
 
-            cls = cls.flatten(end_dim=1)
+            cls = cls.flatten(end_dim=1) # (900*6)
             cls_target = cls_target.flatten(end_dim=1)
             cls_weight = cls_weight.flatten(end_dim=1)
             cls_loss = self.motion_loss_cls(cls,
@@ -1513,19 +1526,39 @@ class V13MotionPlanningHead(BaseModule):
 
     @force_fp32(apply_to=("model_outs"))
     def loss_planning(self, model_outs, data):
+        """
+        model_outs = planning_output
+            - "classification" : (b, 1, 18)
+            - "prediction" : (b, 1, 18, 6, 2)
+            - "status" : (b, 1, 10)
+            - "period" : (b, 11)
+            -  "anchor_queue" : (b, 1, 11)
+            - "diffusion_prediction" : List of (b, 1, 18, 6, 2) # len = 1
+            - "diffusion_classification" : List of (b, 1, 18) # len = 1
+            - "tgt_cmd_plan_anchor": (b, 6, 6, 2)
+        """
         # import ipdb;ipdb.set_trace()
-        cls_scores = model_outs["classification"]
-        reg_preds = model_outs["prediction"]
-        status_preds = model_outs["status"]
+        cls_scores = model_outs["classification"] # (1, 1, 18)
+        reg_preds = model_outs["prediction"] # (1, 1, 18, 6, 2)
+        status_preds = model_outs["status"] # (1, 1, 10)
         # diffusion_losses = model_outs["diffusion_loss"]
+        # List of (b, 1, 18, 6, 2) # len = 1
         diffusion_predictions = model_outs["diffusion_prediction"]
+        # List of (b, 1, 18) # len = 1
         diffusion_classification = model_outs["diffusion_classification"]
+        # (b, 6, 6, 2)
         tgt_cmd_plan_anchor = model_outs["tgt_cmd_plan_anchor"]
         output = {}
         # import ipdb;ipdb.set_trace()
         for decoder_idx, (cls, reg, status) in enumerate(
                 zip(cls_scores, reg_preds, status_preds)):
+            """
+            cls: (1, 18)
+            reg: (1, 18, 6, 2)
+            status: (1, 10)
+            """
             if cls is None and reg is None:
+                # plan_loss_status: L1Loss with loss_weight=1.0
                 status_loss = self.plan_loss_status(status.squeeze(1),
                                                     data['ego_status'])
                 output.update({
@@ -1536,34 +1569,41 @@ class V13MotionPlanningHead(BaseModule):
                 })
             else:
                 (
-                    cls,
+                    cls, # (b, 1, 6)
                     cls_target,
                     cls_weight,
-                    reg_pred,
+                    reg_pred, # (b, 1 ,6, 2) (아마)
                     reg_target,
                     reg_weight,
-                ) = self.planning_sampler.sample(
-                    cls,
-                    reg,
+                ) = self.planning_sampler.sample( # planning_sampler: V1PlanningTarget
+                    cls, # (1, 18)
+                    reg, # (1, 18, 6, 2)
                     data['gt_ego_fut_trajs'],
                     data['gt_ego_fut_masks'],
                     data,
                 )
-                cls = cls.flatten(end_dim=1)
+                cls = cls.flatten(end_dim=1) # (b, 6)
                 cls_target = cls_target.flatten(end_dim=1)
                 cls_weight = cls_weight.flatten(end_dim=1)
+                """plan_loss_cls: FocalLoss
+                    use_sigmoid=True,
+                    gamma=2.0,
+                    alpha=0.25,
+                    loss_weight=0.5,
+                """
                 cls_loss = self.plan_loss_cls(cls,
                                               cls_target,
                                               weight=cls_weight)
 
                 reg_weight = reg_weight.flatten(end_dim=1)
-                reg_pred = reg_pred.flatten(end_dim=1)
+                reg_pred = reg_pred.flatten(end_dim=1) # (b, 6, 2)
                 reg_target = reg_target.flatten(end_dim=1)
                 reg_weight = reg_weight.unsqueeze(-1)
-
+                # plan_loss_reg: L1Loss with loss_weight=1.0
                 reg_loss = self.plan_loss_reg(reg_pred,
                                               reg_target,
                                               weight=reg_weight)
+                # plan_loss_status: L1Loss with loss_weight=1.0
                 status_loss = self.plan_loss_status(status.squeeze(1),
                                                     data['ego_status'])
 

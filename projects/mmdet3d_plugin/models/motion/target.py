@@ -126,8 +126,8 @@ class V1PlanningTarget():
 
     def __init__(
         self,
-        ego_fut_ts,
-        ego_fut_mode,
+        ego_fut_ts, # 6
+        ego_fut_mode, # 6
     ):
         super(V1PlanningTarget, self).__init__()
         self.ego_fut_ts = ego_fut_ts
@@ -172,9 +172,9 @@ class V1PlanningTarget():
 
     def sample(
         self,
-        cls_pred,
-        reg_pred,
-        tgt_cmd_plan_anchor,
+        cls_pred, # (1, 18)
+        reg_pred, # (1, 18, 6, 2)
+        tgt_cmd_plan_anchor, #
         gt_reg_target,
         gt_reg_mask,
         data,
@@ -185,18 +185,20 @@ class V1PlanningTarget():
 
         bs = reg_pred.shape[0]
         bs_indices = torch.arange(bs, device=reg_pred.device)
-        cmd = data['gt_ego_fut_cmd'].argmax(dim=-1)
+        cmd = data['gt_ego_fut_cmd'].argmax(dim=-1) # (b=1) 0 or 1 or 2
 
-        cls_pred = cls_pred.reshape(bs, 3, 1, self.ego_fut_mode)
+        cls_pred = cls_pred.reshape(bs, 3, 1, self.ego_fut_mode) # (1, 3, 1, 6)
+        # reg_pred: (1, 18, 6, 2) -> (1, 3, 1, 6, 6, 2)
         reg_pred = reg_pred.reshape(bs, 3, 1, self.ego_fut_mode,
                                     self.ego_fut_ts, 2)
-        cls_pred = cls_pred[bs_indices, cmd]
-        reg_pred = reg_pred[bs_indices, cmd]
+        cls_pred = cls_pred[bs_indices, cmd] # (1, 3, 1, 6) -> (b, 1, 6)
+        reg_pred = reg_pred[bs_indices, cmd] # (1, 3, 1, 6, 6, 2) -> (b, 1, 6, 6, 2)
         # import ipdb;ipdb.set_trace()
         cls_target = self.get_cls_target(
             tgt_cmd_plan_anchor.view(bs, 1, self.ego_fut_mode, self.ego_fut_ts,
                                      2), gt_reg_target, gt_reg_mask)
         cls_weight = gt_reg_mask.any(dim=-1)
+        # reg_pred: (b, 1, 6, 6, 2)
         best_reg = self.get_best_reg(reg_pred, cls_target, gt_reg_target,
                                      gt_reg_mask)
         # import ipdb;ipdb.set_trace()

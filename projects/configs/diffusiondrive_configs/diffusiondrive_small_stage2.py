@@ -525,8 +525,8 @@ model = dict(
             motion_loss_reg=dict(type='L1Loss', loss_weight=0.2),
             planning_sampler=dict(
                 type="V1PlanningTarget",
-                ego_fut_ts=ego_fut_ts,
-                ego_fut_mode=ego_fut_mode,
+                ego_fut_ts=ego_fut_ts, # 6
+                ego_fut_mode=ego_fut_mode, # 6
             ),
             plan_loss_cls=dict(
                 type='FocalLoss',
